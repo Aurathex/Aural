@@ -6,6 +6,15 @@ installer and uninstaller) and the worker processes. What's left needs a person 
 keyboard. Run this on a real Windows 10 or 11 PC before each release; record results in
 the release notes.
 
+Before starting, with the screen unlocked, run the automated desktop tests and the
+installer upgrade check:
+
+```powershell
+cargo test -p aural-platform -- --ignored --test-threads=1
+./scripts/test-upgrade-autostart.ps1 -Installer target/release/bundle/nsis/Aural_<version>_x64-setup.exe
+./scripts/test-upgrade-autostart.ps1 -Installer target/release/bundle/nsis/Aural_<version>_x64-setup.exe -Off
+```
+
 ## Hotkey and pill
 
 - [ ] Hold **Ctrl + Win**, speak a sentence, let go: text appears at the cursor.
@@ -21,6 +30,8 @@ the release notes.
 - [ ] Toggle mode: press once to start, once to stop.
 - [ ] Change the hotkey to Right Ctrl in Settings; the new one works immediately and
       the old one doesn't.
+- [ ] Close the Settings window with its **X** button: Aural stays in the notification
+      area and dictation with the hotkey still works in another app.
 - [ ] Click **Change** for the hotkey, then close the Settings window (or switch to
       another app) without finishing: dictation with the current hotkey still works.
 
