@@ -11,6 +11,20 @@ use std::time::Instant;
 pub trait Transcriber {
     fn label(&self) -> String;
     fn transcribe(&mut self, pcm16k: &[f32]) -> Result<String>;
+
+    /// Thread count actually applied, or `None` when the engine sizes its own pool.
+    fn threads(&self) -> Option<usize> {
+        None
+    }
+
+    /// Backend the engine is really running on (verified, not merely requested).
+    fn backend_used(&self) -> String {
+        "cpu".into()
+    }
+}
+
+pub fn threads_label(threads: Option<usize>) -> String {
+    threads.map_or_else(|| "engine-default".into(), |t| t.to_string())
 }
 
 /// (clip id, 16 kHz mono audio, reference transcript)
@@ -161,6 +175,15 @@ mod tests {
         let s = summarize(&r);
         assert!((s.corpus_wer - 0.2).abs() < 1e-9); // 1 error / 5 words
         assert!((r[0].audio_secs - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn engines_default_to_unknown_threads_and_cpu() {
+        let t = Echo(vec![]);
+        assert_eq!(t.threads(), None);
+        assert_eq!(t.backend_used(), "cpu");
+        assert_eq!(threads_label(None), "engine-default");
+        assert_eq!(threads_label(Some(6)), "6");
     }
 
     #[test]

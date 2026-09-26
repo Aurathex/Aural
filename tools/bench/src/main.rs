@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use aural_bench::audio::load_wav_16k_mono;
 use aural_bench::cli::{build_engine, Cli};
-use aural_bench::mem::peak_working_set_mb;
-use aural_bench::runner::{parse_corpus_tsv, run, summarize, CorpusClip};
+use aural_bench::mem::{current_working_set_mb, peak_working_set_mb};
+use aural_bench::runner::{parse_corpus_tsv, run, summarize, threads_label, CorpusClip};
 use clap::Parser;
 use std::time::Instant;
 
@@ -23,6 +23,8 @@ fn main() -> Result<()> {
         .into_iter()
         .map(|e| Ok((e.id, load_wav_16k_mono(&e.wav)?, e.reference)))
         .collect::<Result<_>>()?;
+    // Decoded corpus audio is resident for the whole run; report model RAM net of it.
+    let baseline_mb = current_working_set_mb()?;
 
     let load_start = Instant::now();
     let mut engine = build_engine(cli.engine, &cli.model, cli.backend, threads)?;
@@ -31,29 +33,34 @@ fn main() -> Result<()> {
     let results = run(engine.as_mut(), &corpus, cli.warmup)?;
     let summary = summarize(&results);
     let peak_mb = peak_working_set_mb()?;
+    let engine_ram_mb = (peak_mb - baseline_mb).max(0.0);
+    let threads_used = engine.threads();
 
-    println!("| engine | backend | threads | clips | WER | p50 ms | p95 ms | mean RTF | load ms | peak RAM MB |");
+    println!("| engine | backend | threads | clips | WER | p50 ms | p95 ms | mean RTF | load ms | engine RAM MB |");
     println!("|---|---|---|---|---|---|---|---|---|---|");
     println!(
-        "| {} | {:?} | {} | {} | {:.2}% | {:.0} | {:.0} | {:.3} | {:.0} | {:.0} |",
+        "| {} | {} | {} | {} | {:.2}% | {:.0} | {:.0} | {:.3} | {:.0} | {:.0} |",
         engine.label(),
-        cli.backend,
-        threads,
+        engine.backend_used(),
+        threads_label(threads_used),
         summary.clips,
         summary.corpus_wer * 100.0,
         summary.p50_ms,
         summary.p95_ms,
         summary.mean_rtf,
         load_ms,
-        peak_mb
+        engine_ram_mb
     );
 
     let report = serde_json::json!({
         "engine": engine.label(),
-        "backend": format!("{:?}", cli.backend),
-        "threads": threads,
+        "backend_requested": format!("{:?}", cli.backend),
+        "backend_used": engine.backend_used(),
+        "threads": threads_used,
         "load_ms": load_ms,
         "peak_working_set_mb": peak_mb,
+        "corpus_baseline_mb": baseline_mb,
+        "engine_ram_mb": engine_ram_mb,
         "summary": summary,
         "clips": results,
     });
