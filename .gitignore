@@ -18,3 +18,7 @@ dist/
 .vscode/
 .idea/
 *.log
+
+# Claude Code local state
+.claude/worktrees/
+.claude/settings.local.json
