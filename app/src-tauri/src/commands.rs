@@ -171,7 +171,13 @@ pub fn remove_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
         .get(&id)
         .ok_or_else(|| format!("unknown model {id}"))?;
     let active = app.settings().stt.active_model;
-    app.store.remove(entry, active.as_deref()).map_err(err)?;
+    {
+        // Held across the check and the delete so a download can't start in between.
+        let downloads = lock(&app.downloads);
+        app.store
+            .remove(entry, active.as_deref(), downloads.contains_key(&id))
+            .map_err(err)?;
+    }
     Ok(app.snapshot())
 }
 

@@ -65,8 +65,20 @@ impl ModelStore {
             .with_context(|| format!("writing {}", path.display()))
     }
 
-    /// Remove a model. The active model cannot be removed (switch first).
-    pub fn remove(&self, entry: &ModelEntry, active: Option<&str>) -> Result<()> {
+    /// Remove a model. The active model cannot be removed (switch first), and neither
+    /// can one that is downloading: the download would recreate its folder and receipt.
+    pub fn remove(
+        &self,
+        entry: &ModelEntry,
+        active: Option<&str>,
+        downloading: bool,
+    ) -> Result<()> {
+        if downloading {
+            bail!(
+                "{} is downloading; cancel the download before removing it",
+                entry.name
+            );
+        }
         if active == Some(entry.id.as_str()) {
             bail!(
                 "{} is the active model; choose another model before removing it",
@@ -186,6 +198,19 @@ mod tests {
     };
 
     #[test]
+    fn a_model_that_is_downloading_cannot_be_removed() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let m = catalog().get("whisper-base.en-q8").unwrap().clone();
+        fake_install(&store, &m);
+        let err = store.remove(&m, None, true).unwrap_err().to_string();
+        assert!(err.contains("downloading"), "{err}");
+        assert!(store.is_installed(&m), "files must be left alone");
+        store.remove(&m, None, false).unwrap();
+        assert!(!store.is_installed(&m));
+    }
+
+    #[test]
     fn nothing_installed_in_an_empty_store() {
         let root = tempfile::tempdir().unwrap();
         let store = ModelStore::new(root.path());
@@ -243,7 +268,7 @@ mod tests {
         let store = ModelStore::new(root.path());
         let m = catalog().get("whisper-base.en-q8").unwrap().clone();
         fake_install(&store, &m);
-        assert!(store.remove(&m, Some(&m.id)).is_err());
+        assert!(store.remove(&m, Some(&m.id), false).is_err());
         assert!(store.is_installed(&m));
     }
 
@@ -253,7 +278,9 @@ mod tests {
         let store = ModelStore::new(root.path());
         let m = catalog().get("whisper-base.en-q8").unwrap().clone();
         fake_install(&store, &m);
-        store.remove(&m, Some("parakeet-tdt-0.6b-v2-int8")).unwrap();
+        store
+            .remove(&m, Some("parakeet-tdt-0.6b-v2-int8"), false)
+            .unwrap();
         assert!(!store.dir(&m.id).exists());
         assert!(!store.is_installed(&m));
     }
