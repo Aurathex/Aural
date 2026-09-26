@@ -21,6 +21,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Build and test the Parakeet (ONNX) bench adapter
+        run: cargo test -p aural-bench --features onnx
 
   deny:
     runs-on: ubuntu-latest

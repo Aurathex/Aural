@@ -1,5 +1,8 @@
 [graph]
 targets = ["x86_64-pc-windows-msvc"]
+# Check optional engine dependencies too (onnx/ggml features). cargo-deny reads cargo
+# metadata only, so the onnx/ggml compile_error! does not apply here.
+all-features = true
 
 [licenses]
 allow = [
@@ -15,6 +18,12 @@ allow = [
   "MPL-2.0",
 ]
 confidence-threshold = 0.9
+
+# Mozilla CA root certificate data, pulled in at build time by ort-sys (via ureq) to
+# download ONNX Runtime. Data-only, permissive; scoped to this crate only.
+[[licenses.exceptions]]
+crate = "webpki-root-certs"
+allow = ["CDLA-Permissive-2.0"]
 
 [bans]
 multiple-versions = "warn"
