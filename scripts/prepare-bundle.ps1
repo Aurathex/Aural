@@ -19,7 +19,8 @@ $triple = 'x86_64-pc-windows-msvc'
 $tauri = Join-Path $root 'app\src-tauri'
 $bin = Join-Path $tauri 'binaries'
 $runtime = Join-Path $tauri 'runtime'
-$target = Join-Path $root "target\$BuildProfile"
+$targetRoot = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root 'target' }
+$target = Join-Path $targetRoot $BuildProfile
 $cargoArgs = @('build')
 if ($BuildProfile -eq 'release') { $cargoArgs += '--release' }
 

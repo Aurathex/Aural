@@ -89,5 +89,7 @@ Audio and results stay outside the repo.
    ./tools/bench/scripts/run-matrix.ps1 -Corpus <corpus.tsv> -Out <results folder> `
      -Backends cpu,vulkan,cuda
    ```
-   Each run appends a row to `<results folder>\table.md` and writes per-clip JSON.
+   If the Vulkan build fails with MSVC error C1083 (`Cannot open compiler generated file: ''`),
+   the checkout path is too long for the nested shader build: add `-TargetDir C:\t\aural`
+   (any short folder). Each run appends a row to `<results folder>\table.md` and writes per-clip JSON.
 4. Copy the tables into `docs/benchmarks/` and apply the decision rules written there.
