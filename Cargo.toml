@@ -5,6 +5,7 @@ members = [
   "crates/aural-audio",
   "crates/aural-engines",
   "crates/aural-models",
+  "crates/aural-platform",
   "tools/bench",
 ]
 
