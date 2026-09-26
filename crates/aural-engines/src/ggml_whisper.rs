@@ -281,6 +281,7 @@ mod tests {
     /// A GPU build must report the GPU it initialized, not "fell back to CPU".
     /// Set AURAL_TEST_GPU_BACKEND=vulkan|cuda and build with that feature:
     /// `cargo test --release --features ggml,vulkan -- --ignored gpu_backend`.
+    #[cfg(any(feature = "vulkan", feature = "cuda"))]
     #[test]
     #[ignore]
     fn gpu_backend_is_detected() {
