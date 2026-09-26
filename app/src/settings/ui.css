@@ -105,6 +105,8 @@
 select.field {
   height: 30px;
   min-width: 260px;
+  max-width: 340px;
+  text-overflow: ellipsis;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 6px;

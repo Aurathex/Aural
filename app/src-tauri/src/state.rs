@@ -41,7 +41,7 @@ pub struct App {
     pub pill_hidden: AtomicBool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct AppStateDto {
     pub version: String,
     pub settings: Settings,

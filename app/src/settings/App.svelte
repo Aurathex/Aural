@@ -26,8 +26,27 @@
     if (m) m.state = { kind: "downloading", downloaded: p.downloaded, total: p.total };
   }
 
-  async function refresh() {
-    app = await call<AppState>("get_state");
+  let firstRun = true;
+
+  // The window can load before the backend has finished starting; the first state
+  // (from any source) decides whether to open on Models.
+  function receive(s: AppState) {
+    app = s;
+    if (firstRun) {
+      firstRun = false;
+      if (!s.models.some((m) => m.state.kind === "active" || m.state.kind === "installed")) page = "models";
+    }
+  }
+
+  async function refresh(attempts = 1) {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        receive(await call<AppState>("get_state"));
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
   }
 
   async function save(s: Settings) {
@@ -40,12 +59,9 @@
   }
 
   onMount(() => {
-    void refresh().then(() => {
-      // First run: go straight to models until one is ready.
-      if (app && !app.models.some((m) => m.state.kind === "active" || m.state.kind === "installed")) page = "models";
-    });
+    void refresh(40);
     const offs = [
-      on<AppState>("state-changed", (s) => (app = s)),
+      on<AppState>("state-changed", receive),
       on<ProgressEvent>("model-progress", applyProgress),
       on<null>("deleted", () => (deleted = true)),
     ];
