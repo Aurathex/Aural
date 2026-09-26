@@ -10,6 +10,7 @@ members = [
   "tools/bench",
   "workers/stt-onnx",
   "workers/stt-ggml",
+  "app/src-tauri",
 ]
 # The two workers enable mutually exclusive aural-engines features (ONNX Runtime and
 # whisper.cpp must not link into one binary), so they are built one at a time with
@@ -23,6 +24,7 @@ default-members = [
   "crates/aural-platform",
   "crates/aural-stt-protocol",
   "tools/bench",
+  "app/src-tauri",
 ]
 
 [workspace.package]

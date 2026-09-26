@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Events for the settings window and the listening pill. The webviews have no network, filesystem or shell access; everything goes through Aural's own commands.",
+  "windows": ["main", "pill"],
+  "permissions": ["core:event:default", "core:window:allow-hide"]
+}

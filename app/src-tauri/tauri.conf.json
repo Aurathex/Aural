@@ -1,0 +1,79 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Aural",
+  "version": "0.1.0",
+  "identifier": "com.aurathex.aural",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Aural",
+        "url": "index.html",
+        "width": 820,
+        "height": 580,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
+        "visible": false
+      },
+      {
+        "label": "pill",
+        "title": "Aural listening",
+        "url": "pill.html",
+        "width": 176,
+        "height": 36,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false,
+        "resizable": false,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Aurathex",
+    "copyright": "Copyright (c) 2026 Aurathex",
+    "category": "Productivity",
+    "shortDescription": "Local voice dictation for Windows",
+    "longDescription": "Hold a hotkey, speak, release: Aural transcribes your speech on this PC and types it into the app you are using. No account, no cloud audio.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/aural-stt-onnx", "binaries/aural-stt-ggml"],
+    "resources": {
+      "runtime/DirectML.dll": "DirectML.dll",
+      "runtime/msvcp140.dll": "msvcp140.dll",
+      "runtime/msvcp140_1.dll": "msvcp140_1.dll",
+      "runtime/vcruntime140.dll": "vcruntime140.dll",
+      "runtime/vcruntime140_1.dll": "vcruntime140_1.dll"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/hooks.nsh",
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {}
+}

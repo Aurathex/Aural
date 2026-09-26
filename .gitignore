@@ -22,3 +22,10 @@ dist/
 # Claude Code local state
 .claude/worktrees/
 .claude/settings.local.json
+
+# Build output staged for the Tauri bundle
+app/dist/
+app/src-tauri/binaries/
+app/src-tauri/runtime/
+app/src-tauri/gen/
+app/.vitest/

@@ -1,0 +1,42 @@
+[package]
+name = "aural"
+version = "0.1.0"
+description = "Aural — local voice dictation for Windows"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "aural_app"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+anyhow = "1.0.104"
+aural-audio = { path = "../../crates/aural-audio" }
+aural-core = { path = "../../crates/aural-core" }
+aural-engines = { path = "../../crates/aural-engines" }
+aural-models = { path = "../../crates/aural-models" }
+aural-platform = { path = "../../crates/aural-platform" }
+aural-stt-protocol = { path = "../../crates/aural-stt-protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.151"
+tauri = { version = "2.11.6", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2.4.5"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints]
+workspace = true
