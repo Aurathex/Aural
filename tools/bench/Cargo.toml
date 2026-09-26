@@ -6,5 +6,13 @@ license.workspace = true
 publish = false
 description = "Developer tool: benchmark local STT engines (WER, latency, memory). Not shipped."
 
+[dependencies]
+anyhow = "1.0.104"
+hound = "3.5.1"
+rubato = "5.0.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
 [lints]
 workspace = true
