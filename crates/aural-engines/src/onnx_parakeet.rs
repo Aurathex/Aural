@@ -6,8 +6,8 @@
 //! transcribe-rs 0.3 sizes the ONNX Runtime thread pool itself, so `--threads` is not
 //! applied to this engine.
 
-use crate::cli::Backend;
-use crate::runner::Transcriber;
+use crate::Backend;
+use crate::Transcriber;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
@@ -60,7 +60,7 @@ impl Transcriber for Parakeet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wer::word_errors;
+    use crate::test_support::missed_words;
 
     #[test]
     fn gpu_backends_rejected_before_touching_the_model() {
@@ -93,9 +93,9 @@ mod tests {
         let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
         let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
         let mut t = load(std::path::Path::new(&dir), Backend::Cpu, 4).unwrap();
-        let pcm = crate::audio::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
+        let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
         let text = t.transcribe(&pcm).unwrap();
-        let wer = word_errors(&reference, &text).wer();
+        let wer = missed_words(&reference, &text);
         assert!(!text.trim().is_empty());
         assert!(wer < 0.3, "wer {wer}: {text}");
     }

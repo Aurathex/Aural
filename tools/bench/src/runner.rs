@@ -7,21 +7,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-/// One loaded STT engine. Input is always 16 kHz mono `f32`.
-pub trait Transcriber {
-    fn label(&self) -> String;
-    fn transcribe(&mut self, pcm16k: &[f32]) -> Result<String>;
-
-    /// Thread count actually applied, or `None` when the engine sizes its own pool.
-    fn threads(&self) -> Option<usize> {
-        None
-    }
-
-    /// Backend the engine is really running on (verified, not merely requested).
-    fn backend_used(&self) -> String {
-        "cpu".into()
-    }
-}
+pub use aural_engines::Transcriber;
 
 pub fn threads_label(threads: Option<usize>) -> String {
     threads.map_or_else(|| "engine-default".into(), |t| t.to_string())

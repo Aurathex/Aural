@@ -1,8 +1,8 @@
 //! whisper.cpp (ggml) via `whisper-rs`. GPU backends are compile-time: build with
 //! `--features vulkan` or `--features cuda` (both imply `ggml`).
 
-use crate::cli::Backend;
-use crate::runner::Transcriber;
+use crate::Backend;
+use crate::Transcriber;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use whisper_rs::{
@@ -172,7 +172,7 @@ impl Transcriber for Whisper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wer::word_errors;
+    use crate::test_support::missed_words;
 
     #[test]
     fn backend_not_compiled_in_is_rejected_before_loading() {
@@ -250,7 +250,7 @@ mod tests {
         let model = std::env::var("AURAL_TEST_WHISPER_MODEL").expect("AURAL_TEST_WHISPER_MODEL");
         let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
         let mut t = load(std::path::Path::new(&model), Backend::Cpu, 4).unwrap();
-        let pcm = crate::audio::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
+        let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
         t.transcribe(&pcm).unwrap(); // warm up
         let start = std::time::Instant::now();
         t.transcribe(&pcm).unwrap();
@@ -270,9 +270,9 @@ mod tests {
         let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
         let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
         let mut t = load(std::path::Path::new(&model), Backend::Cpu, 4).unwrap();
-        let pcm = crate::audio::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
+        let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
         let text = t.transcribe(&pcm).unwrap();
-        let wer = word_errors(&reference, &text).wer();
+        let wer = missed_words(&reference, &text);
         assert!(wer < 0.3, "wer {wer}: {text}");
     }
 }

@@ -1,24 +1,9 @@
 //! Command-line surface of `aural-bench` and the engine registry behind `--engine`.
 
-use crate::runner::Transcriber;
-use anyhow::{bail, Result};
-use clap::{Parser, ValueEnum};
-use std::path::{Path, PathBuf};
+use clap::Parser;
+use std::path::PathBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum Engine {
-    /// NVIDIA Parakeet TDT via ONNX Runtime (build with --features onnx)
-    Parakeet,
-    /// whisper.cpp / ggml (build with --features ggml)
-    Whisper,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum Backend {
-    Cpu,
-    Vulkan,
-    Cuda,
-}
+pub use aural_engines::{build_engine, Backend, Engine};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -45,31 +30,6 @@ pub struct Cli {
     /// CPU threads for the engine (default: physical cores - 1, max 8)
     #[arg(long)]
     pub threads: Option<usize>,
-}
-
-/// Construct the requested engine. Engines are behind mutually exclusive cargo
-/// features because ONNX Runtime and whisper.cpp must not link into one binary.
-#[allow(unused_variables)]
-pub fn build_engine(
-    engine: Engine,
-    model: &Path,
-    backend: Backend,
-    threads: usize,
-) -> Result<Box<dyn Transcriber>> {
-    match engine {
-        Engine::Parakeet => {
-            #[cfg(feature = "onnx")]
-            return crate::engines::onnx_parakeet::load(model, backend, threads);
-            #[cfg(not(feature = "onnx"))]
-            bail!("engine 'parakeet' is not compiled in; rebuild with --features onnx")
-        }
-        Engine::Whisper => {
-            #[cfg(feature = "ggml")]
-            return crate::engines::ggml_whisper::load(model, backend, threads);
-            #[cfg(not(feature = "ggml"))]
-            bail!("engine 'whisper' is not compiled in; rebuild with --features ggml")
-        }
-    }
 }
 
 #[cfg(test)]
@@ -132,14 +92,5 @@ mod tests {
             "o",
         ])
         .is_err());
-    }
-
-    #[cfg(not(any(feature = "onnx", feature = "ggml")))]
-    #[test]
-    fn engine_not_compiled_in_says_which_feature_to_enable() {
-        let err = build_engine(Engine::Parakeet, std::path::Path::new("m"), Backend::Cpu, 4)
-            .err()
-            .unwrap();
-        assert!(err.to_string().contains("--features onnx"), "{err}");
     }
 }

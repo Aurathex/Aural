@@ -36,25 +36,22 @@ fn counters() -> Result<PROCESS_MEMORY_COUNTERS> {
 mod tests {
     use super::*;
 
+    // One test on purpose: process-wide counters are skewed by other tests allocating on
+    // parallel threads, so every comparison here must hold regardless of test order.
     #[test]
-    fn current_working_set_drops_after_free_but_peak_does_not() {
-        let big = vec![1u8; 64 * 1024 * 1024];
+    fn working_set_tracks_touched_memory_and_peak_never_drops() {
+        let big = vec![1u8; 256 * 1024 * 1024];
         std::hint::black_box(&big);
         let during = current_working_set_mb().unwrap();
+        let peak_during = peak_working_set_mb().unwrap();
+        assert!(
+            during > 256.0,
+            "working set {during} MB while holding 256 MB"
+        );
+        assert!(peak_during >= during);
         drop(big);
         let after = current_working_set_mb().unwrap();
-        let peak = peak_working_set_mb().unwrap();
-        assert!(after < during - 32.0, "during {during} after {after}");
-        assert!(peak >= during);
-    }
-
-    #[test]
-    fn peak_working_set_grows_after_touching_memory() {
-        let before = peak_working_set_mb().unwrap();
-        let big = vec![1u8; 64 * 1024 * 1024];
-        std::hint::black_box(&big);
-        let after = peak_working_set_mb().unwrap();
-        assert!(before > 0.0);
-        assert!(after >= before + 50.0, "before {before} after {after}");
+        assert!(after < during - 128.0, "during {during} after {after}");
+        assert!(peak_working_set_mb().unwrap() >= peak_during);
     }
 }
