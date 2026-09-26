@@ -67,7 +67,7 @@ fn insert_failure(reason: Reason) -> ErrorCode {
     match reason {
         Reason::Elevated => ErrorCode::InsertBlocked,
         Reason::FocusChanged => ErrorCode::FocusChanged,
-        Reason::NoTarget => ErrorCode::InsertFailed,
+        Reason::NoTarget | Reason::PasteIgnored => ErrorCode::InsertFailed,
     }
 }
 

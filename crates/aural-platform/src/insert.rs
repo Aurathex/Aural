@@ -28,6 +28,9 @@ pub enum Reason {
     FocusChanged,
     Elevated,
     NoTarget,
+    /// The paste was sent but the app never read the clipboard (it ignores Ctrl+V,
+    /// or is too slow, e.g. a frozen remote session).
+    PasteIgnored,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -137,6 +140,8 @@ mod win {
     const CF_TEXT: u32 = 1;
     const CF_OEMTEXT: u32 = 7;
     const CF_LOCALE: u32 = 16;
+    /// How long an app may take to read pasted text (remote desktops can be slow).
+    const PASTE_TIMEOUT: Duration = Duration::from_secs(3);
     /// Unassigned virtual key: pressing it stops Win/Alt releases from opening menus.
     pub const MASK_VK: u16 = 0xE8;
     const MODIFIERS: [u16; 8] = [0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C];
@@ -468,6 +473,242 @@ mod win {
         send(&inputs)
     }
 
+    // ---- Delayed rendering -------------------------------------------------------
+    //
+    // Aural offers the text without data; Windows asks our owner window for it at the
+    // moment the target app actually reads the clipboard (WM_RENDERFORMAT). That tells
+    // us the paste happened, so the user's previous clipboard is restored only after
+    // the target has the transcript, however slow the target is (RDP, VMs, busy apps).
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PasteResult {
+        /// The target read the text; the previous clipboard was restored if nothing
+        /// else had taken the clipboard since.
+        Read,
+        /// Nothing read it in time; the transcript is left on the clipboard (unless the
+        /// user copied something newer), and nothing was restored over it.
+        Ignored,
+    }
+
+    thread_local! {
+        static PENDING: std::cell::RefCell<Option<Vec<u8>>> = const { std::cell::RefCell::new(None) };
+        static RENDERED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    fn render_pending() {
+        PENDING.with(|p| {
+            if let Some(bytes) = p.borrow().as_ref() {
+                if let Ok(g) = global_from(bytes) {
+                    // SAFETY: called while the clipboard is open for rendering (inside
+                    // WM_RENDERFORMAT, or after OpenClipboard by the owner).
+                    if unsafe { SetClipboardData(CF_UNICODETEXT, Some(HANDLE(g.0))) }.is_ok() {
+                        RENDERED.with(|r| r.set(true));
+                    }
+                }
+            }
+        });
+    }
+
+    unsafe extern "system" fn owner_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: windows::Win32::Foundation::WPARAM,
+        lparam: windows::Win32::Foundation::LPARAM,
+    ) -> windows::Win32::Foundation::LRESULT {
+        use windows::Win32::Foundation::LRESULT;
+        use windows::Win32::System::DataExchange::GetClipboardOwner;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DefWindowProcW, WM_RENDERALLFORMATS, WM_RENDERFORMAT,
+        };
+        match msg {
+            WM_RENDERFORMAT => {
+                if wparam.0 as u32 == CF_UNICODETEXT {
+                    render_pending();
+                }
+                LRESULT(0)
+            }
+            WM_RENDERALLFORMATS => {
+                // SAFETY: documented handling: open with our window, render if we still
+                // own the clipboard, close.
+                unsafe {
+                    if OpenClipboard(Some(hwnd)).is_ok() {
+                        if GetClipboardOwner().ok() == Some(hwnd) {
+                            render_pending();
+                        }
+                        let _ = CloseClipboard();
+                    }
+                }
+                LRESULT(0)
+            }
+            // SAFETY: default handling for everything else.
+            _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+        }
+    }
+
+    /// A message-only window that owns the clipboard while Aural pastes.
+    struct OwnerWindow(HWND);
+
+    impl OwnerWindow {
+        fn create() -> Result<Self> {
+            use windows::core::w;
+            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, RegisterClassW, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+                WNDCLASSW,
+            };
+            static REGISTER: std::sync::Once = std::sync::Once::new();
+            // SAFETY: standard class registration / message-only window creation.
+            unsafe {
+                let instance = GetModuleHandleW(None)?;
+                REGISTER.call_once(|| {
+                    let class = WNDCLASSW {
+                        lpfnWndProc: Some(owner_proc),
+                        hInstance: instance.into(),
+                        lpszClassName: w!("AuralClipboardOwner"),
+                        ..Default::default()
+                    };
+                    RegisterClassW(&class);
+                });
+                let hwnd = CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("AuralClipboardOwner"),
+                    w!(""),
+                    WINDOW_STYLE(0),
+                    0,
+                    0,
+                    0,
+                    0,
+                    Some(HWND_MESSAGE),
+                    None,
+                    Some(instance.into()),
+                    None,
+                )?;
+                Ok(Self(hwnd))
+            }
+        }
+
+        fn open_clipboard(&self) -> Result<ClipboardGuard> {
+            let deadline = Instant::now() + Duration::from_millis(500);
+            loop {
+                // SAFETY: our own window.
+                if unsafe { OpenClipboard(Some(self.0)) }.is_ok() {
+                    return Ok(ClipboardGuard);
+                }
+                if Instant::now() > deadline {
+                    bail!("the clipboard is busy");
+                }
+                self.pump();
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        fn owns_clipboard(&self) -> bool {
+            use windows::Win32::System::DataExchange::GetClipboardOwner;
+            // SAFETY: no preconditions.
+            unsafe { GetClipboardOwner() }.ok() == Some(self.0)
+        }
+
+        /// Deliver messages sent to this thread (WM_RENDERFORMAT arrives this way).
+        fn pump(&self) {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE,
+            };
+            let mut msg = MSG::default();
+            // SAFETY: standard message pump on this thread.
+            unsafe {
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+        }
+    }
+
+    impl Drop for OwnerWindow {
+        fn drop(&mut self) {
+            use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
+            // SAFETY: our own window, destroyed on the thread that created it.
+            let _ = unsafe { DestroyWindow(self.0) };
+            PENDING.with(|p| p.borrow_mut().take());
+        }
+    }
+
+    /// Offer `text`, press paste via `press`, and restore `previous` once the target
+    /// has read the text. See `PasteResult`.
+    pub fn paste_and_restore(
+        text: &str,
+        previous: Option<String>,
+        press: &mut dyn FnMut() -> Result<()>,
+        timeout: Duration,
+    ) -> Result<PasteResult> {
+        let owner = OwnerWindow::create()?;
+        let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        PENDING
+            .with(|p| *p.borrow_mut() = Some(wide.iter().flat_map(|u| u.to_le_bytes()).collect()));
+        RENDERED.with(|r| r.set(false));
+        {
+            let _g = owner.open_clipboard()?;
+            // SAFETY: clipboard open by our window; a null handle means "render on
+            // request"; the privacy markers carry real data.
+            unsafe {
+                EmptyClipboard().context("emptying clipboard")?;
+                // For delayed rendering SetClipboardData returns NULL even on success,
+                // which windows-rs reports as an error; whether it worked shows up as
+                // WM_RENDERFORMAT arriving (or not).
+                let _ = SetClipboardData(CF_UNICODETEXT, None);
+                let zero = 0u32.to_le_bytes();
+                for name in [
+                    "ExcludeClipboardContentFromMonitorProcessing",
+                    "CanIncludeInClipboardHistory",
+                    "CanUploadToCloudClipboard",
+                ] {
+                    let fmt = register(name);
+                    if fmt != 0 {
+                        if let Ok(g) = global_from(&zero) {
+                            let _ = SetClipboardData(fmt, Some(HANDLE(g.0)));
+                        }
+                    }
+                }
+            }
+        }
+        press()?;
+        let deadline = Instant::now() + timeout;
+        while !RENDERED.with(|r| r.get()) && Instant::now() < deadline {
+            owner.pump();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if RENDERED.with(|r| r.get()) {
+            // The target has the text. Put the old clipboard back unless something
+            // else (the user, another app) has taken the clipboard since.
+            // Delivered: forget it, or destroying the owner window would render it
+            // again (WM_RENDERALLFORMATS) over the restored clipboard.
+            PENDING.with(|p| p.borrow_mut().take());
+            let _g = owner.open_clipboard()?;
+            if owner.owns_clipboard() {
+                // SAFETY: clipboard open by our window.
+                unsafe { EmptyClipboard() }.context("emptying clipboard")?;
+                if let Some(prev) = previous {
+                    let wide: Vec<u16> = prev.encode_utf16().chain(Some(0)).collect();
+                    let bytes: Vec<u8> = wide.iter().flat_map(|u| u.to_le_bytes()).collect();
+                    let g = global_from(&bytes)?;
+                    // SAFETY: clipboard open; ownership of `g` transfers.
+                    unsafe { SetClipboardData(CF_UNICODETEXT, Some(HANDLE(g.0))) }
+                        .context("restoring clipboard text")?;
+                }
+            }
+            Ok(PasteResult::Read)
+        } else {
+            // Nobody pasted. Leave the transcript for the user (rendered now, so it
+            // survives this window), unless they already copied something newer.
+            let _g = owner.open_clipboard()?;
+            if owner.owns_clipboard() {
+                render_pending();
+            }
+            PENDING.with(|p| p.borrow_mut().take());
+            Ok(PasteResult::Ignored)
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
     pub enum InsertOutcome {
         Inserted,
@@ -499,26 +740,15 @@ mod win {
                 Ok(InsertOutcome::Inserted)
             }
             Strategy::Paste(chord) => {
-                let ours = set_clipboard_text(&text, true)?;
-                release_modifiers()?;
-                send(&paste_inputs(chord))?;
-                // The target reads the clipboard asynchronously; give it time before
-                // restoring, and only restore if nobody else changed it meanwhile.
-                std::thread::sleep(Duration::from_millis(250));
-                // SAFETY: no preconditions.
-                if unsafe { GetClipboardSequenceNumber() } == ours {
-                    match snapshot.text {
-                        Some(prev) => {
-                            set_clipboard_text(&prev, false)?;
-                        }
-                        None => {
-                            let _g = open_clipboard()?;
-                            // SAFETY: clipboard open.
-                            let _ = unsafe { EmptyClipboard() };
-                        }
-                    }
+                let mut press = || -> Result<()> {
+                    release_modifiers()?;
+                    send(&paste_inputs(chord))
+                };
+                // Restore happens only after the target has actually read the text.
+                match paste_and_restore(&text, snapshot.text, &mut press, PASTE_TIMEOUT)? {
+                    PasteResult::Read => Ok(InsertOutcome::Inserted),
+                    PasteResult::Ignored => Ok(InsertOutcome::CopiedOnly(Reason::PasteIgnored)),
                 }
-                Ok(InsertOutcome::Inserted)
             }
         }
     }
@@ -610,6 +840,89 @@ mod tests {
     fn text_is_trimmed_everywhere() {
         let p = plan(&target("notepad.exe", "Notepad"), 42, true, false);
         assert_eq!(p.apply("  hi there \n"), "hi there");
+    }
+
+    /// Real clipboard, no keyboard: a second thread plays the target app. The clipboard
+    /// is global, so these run one at a time.
+    #[cfg(windows)]
+    mod delayed_render {
+        use super::super::*;
+        use std::sync::mpsc;
+        use std::sync::Mutex;
+        use std::time::{Duration, Instant};
+
+        static CLIPBOARD: Mutex<()> = Mutex::new(());
+
+        /// Stand-in for an app handling Ctrl+V: opens the clipboard and reads the text.
+        fn app_that_pastes(tx: mpsc::Sender<Option<String>>) -> impl FnMut() -> anyhow::Result<()> {
+            move || {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(50));
+                    let _ = tx.send(read_clipboard_text());
+                });
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn text_is_rendered_when_the_target_reads_it_and_old_text_comes_back() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            set_clipboard_text("previous clipboard", false).unwrap();
+            let (tx, rx) = mpsc::channel();
+            let mut press = app_that_pastes(tx);
+            let got = paste_and_restore(
+                "dictated text",
+                Some("previous clipboard".into()),
+                &mut press,
+                Duration::from_secs(2),
+            )
+            .unwrap();
+            assert_eq!(got, PasteResult::Read);
+            assert_eq!(
+                rx.recv_timeout(Duration::from_secs(2)).unwrap().as_deref(),
+                Some("dictated text")
+            );
+            assert_eq!(read_clipboard_text().as_deref(), Some("previous clipboard"));
+        }
+
+        #[test]
+        fn a_target_that_never_reads_keeps_the_transcript_on_the_clipboard() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            set_clipboard_text("previous clipboard", false).unwrap();
+            let mut press = || -> anyhow::Result<()> { Ok(()) }; // e.g. a window that ignores Ctrl+V
+            let t0 = Instant::now();
+            let got = paste_and_restore(
+                "dictated text",
+                Some("previous clipboard".into()),
+                &mut press,
+                Duration::from_millis(600),
+            )
+            .unwrap();
+            assert_eq!(got, PasteResult::Ignored);
+            assert!(t0.elapsed() < Duration::from_secs(3));
+            // The old clipboard must not replace the text the user still needs to paste.
+            assert_eq!(read_clipboard_text().as_deref(), Some("dictated text"));
+        }
+
+        #[test]
+        fn a_newer_copy_by_the_user_is_never_overwritten() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            // Before the target gets to paste, the user copies something else.
+            let mut press = || -> anyhow::Result<()> {
+                set_clipboard_text("newer copy", false)?;
+                Ok(())
+            };
+            let got = paste_and_restore(
+                "dictated text",
+                Some("previous".into()),
+                &mut press,
+                Duration::from_millis(600),
+            )
+            .unwrap();
+            assert_eq!(got, PasteResult::Ignored);
+            assert_eq!(read_clipboard_text().as_deref(), Some("newer copy"));
+        }
     }
 
     #[test]
