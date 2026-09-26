@@ -25,11 +25,27 @@ confidence-threshold = 0.9
 crate = "webpki-root-certs"
 allow = ["CDLA-Permissive-2.0"]
 
+# Mozilla CA root certificates compiled into the app for HTTPS model downloads (via
+# ureq). Data-only, permissive; attribution in THIRD_PARTY_NOTICES.md.
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
+
 [bans]
 multiple-versions = "warn"
 
 [advisories]
 yanked = "deny"
+# "Unmaintained" notices (no known vulnerability) for the unic-* Unicode tables that
+# Tauri uses via tauri-utils -> urlpattern. Nothing to upgrade to until Tauri moves;
+# re-check on every Tauri upgrade.
+ignore = [
+  { id = "RUSTSEC-2025-0075", reason = "unic-char-range unmaintained; transitive via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0080", reason = "unic-common unmaintained; transitive via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0081", reason = "unic-char-property unmaintained; transitive via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version unmaintained; transitive via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident unmaintained; transitive via tauri-utils/urlpattern" },
+]
 
 [sources]
 unknown-registry = "deny"

@@ -12,10 +12,10 @@ members = [
   "workers/stt-ggml",
   "app/src-tauri",
 ]
-# The two workers enable mutually exclusive aural-engines features (ONNX Runtime and
-# whisper.cpp must not link into one binary), so they are built one at a time with
-# `-p aural-stt-onnx` / `-p aural-stt-ggml` and are left out of plain `cargo build`,
-# `cargo test` and `cargo clippy`. Never use `--workspace`.
+# Plain `cargo build` / `cargo test` / `cargo clippy` cover the libraries, bench and
+# protocol. Left out, and built with `-p`: the two workers (their aural-engines
+# features are mutually exclusive, so never use `--workspace`) and the Tauri app,
+# which needs the frontend build and staged sidecars first (docs/building-windows.md).
 default-members = [
   "crates/aural-core",
   "crates/aural-audio",
@@ -24,7 +24,6 @@ default-members = [
   "crates/aural-platform",
   "crates/aural-stt-protocol",
   "tools/bench",
-  "app/src-tauri",
 ]
 
 [workspace.package]

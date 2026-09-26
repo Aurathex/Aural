@@ -1,0 +1,69 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the Windows installer and the WinGet manifests and
+# attach them to a *draft* GitHub Release. Nothing is published until a maintainer
+# reviews the draft and publishes it by hand.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+env:
+  # Must match LICENSE.md; used for the WinGet manifest.
+  LICENSE_ID: PolyForm-Noncommercial-1.0.0
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.1"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Check tag matches app version
+        shell: pwsh
+        run: |
+          $version = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} != app version $version" }
+          "VERSION=$version" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Build speech workers and stage runtime
+        shell: pwsh
+        run: ./scripts/prepare-bundle.ps1 -BuildProfile release
+
+      - name: Build installer
+        working-directory: app
+        run: |
+          npm ci
+          npx tauri build
+
+      - name: Checksums and WinGet manifests
+        shell: pwsh
+        run: |
+          $installer = "target/release/bundle/nsis/Aural_${env:VERSION}_x64-setup.exe"
+          $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $installer -Leaf)" | Out-File -Encoding ascii SHA256SUMS.txt
+          $dir = ./packaging/winget/New-WingetManifests.ps1 -Version $env:VERSION -Installer $installer `
+            -Repository "${{ github.repository }}" -License $env:LICENSE_ID -OutDir winget-out
+          Compress-Archive -Path "winget-out/manifests" -DestinationPath "winget-manifests-${env:VERSION}.zip"
+
+      - name: Draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: Aural ${{ env.VERSION }}
+          files: |
+            target/release/bundle/nsis/Aural_${{ env.VERSION }}_x64-setup.exe
+            SHA256SUMS.txt
+            winget-manifests-${{ env.VERSION }}.zip

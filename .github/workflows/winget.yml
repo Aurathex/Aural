@@ -1,0 +1,35 @@
+name: Submit to WinGet
+
+# Run by hand after a release has been published. It downloads that release's
+# generated manifests and opens a pull request on microsoft/winget-pkgs with
+# wingetcreate. Needs a WINGET_TOKEN secret: a classic GitHub token with public_repo
+# scope for the account that will own the fork of winget-pkgs.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published version to submit, e.g. 0.1.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: windows-latest
+    steps:
+      - name: Download manifests from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "v${{ inputs.version }}" --repo "${{ github.repository }}" --pattern "winget-manifests-*.zip"
+
+      - name: Validate and submit
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          Expand-Archive "winget-manifests-${{ inputs.version }}.zip" -DestinationPath .
+          $dir = "manifests/a/Aurathex/Aural/${{ inputs.version }}"
+          winget validate --manifest $dir
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          ./wingetcreate.exe submit --token $env:WINGET_TOKEN $dir
