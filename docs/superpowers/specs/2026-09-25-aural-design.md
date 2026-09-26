@@ -420,7 +420,7 @@ Also manual: 4070 CUDA/Vulkan benchmarks + 1 h soak; Intel laptop CPU benchmark;
   - ggml is built with `GGML_BACKEND_DL=ON` + `GGML_CPU_ALL_VARIANTS=ON` + Vulkan → CPU-variant DLLs + `ggml-vulkan.dll` in the installer.
   - `ggml-cuda.dll` is built separately into the CUDA runtime pack.
   - **Verify at M4** that whisper-rs exposes these CMake options; fallback is building whisper.cpp via CMake in `build.rs` ourselves.
-- **Build prerequisites (documented):** VS 2022 Build Tools (MSVC + Windows SDK), Rust stable (pinned in `rust-toolchain.toml`), Node LTS + pnpm, CMake, **Vulkan SDK** (for the ggml Vulkan build), **CUDA Toolkit 12.x** (only for building the CUDA pack).
+- **Build prerequisites (documented):** VS 2022 Build Tools (MSVC + Windows SDK), Rust stable (pinned in `rust-toolchain.toml`), Node LTS + pnpm, CMake, **LLVM** (libclang for whisper-rs bindgen; its bundled bindings are Linux-only; set `LIBCLANG_PATH`), **Vulkan SDK** (for the ggml Vulkan build), **CUDA Toolkit 12.x** (only for building the CUDA pack).
 - **Code signing:** unsigned for early releases (SmartScreen "unknown publisher", documented). Apply to the **SignPath Foundation** (free for OSI projects) before v1.0. Azure Artifact Signing (~$10/mo, US/Canada individuals) is the alternative.
 - **Updates:** v1 uses a manual "Check for updates" that opens the GitHub Releases page. `tauri-plugin-updater` with signed manifests comes post-v1 once signing exists.
 
