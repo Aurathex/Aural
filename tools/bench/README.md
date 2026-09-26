@@ -62,3 +62,32 @@ Notes:
   file is already in the OS file cache; run twice and report the warm number.
 - WER normalization lowercases and strips punctuation but does not normalize numbers
   ("ten" vs "10"). Both engines are scored the same way.
+
+## M0 benchmark procedure
+
+The M0 gate compares engines on two corpora, with the same scripts on every machine.
+Audio and results stay outside the repo.
+
+1. **Public corpus (provisional defaults).** Download LibriSpeech test-clean from
+   <https://www.openslr.org/12> (MD5 `32fa31d27d2e1cad72775fee3f4849a9`), extract it, then:
+   ```powershell
+   ./tools/bench/scripts/prepare-librispeech.ps1 -Source <folder with LibriSpeech\test-clean> `
+     -Out $env:USERPROFILE\aural-bench-corpus\librispeech-100
+   ```
+   This picks 100 clips spread over all 40 speakers, the same ones every time.
+2. **Personal corpus (required to close M0).** Record the 30 prompts in
+   `tools/bench/corpus/personal-prompts.txt` in your own voice:
+   ```powershell
+   ./tools/bench/scripts/record-corpus.ps1
+   ```
+   Press Enter, wait for **SPEAK NOW**, read the line, press Enter. If you said
+   something different, fix that line's reference in `corpus.tsv`. Re-record single
+   clips with `-Only p07,p12`. To import clips recorded elsewhere, put the WAVs next to
+   a `corpus.tsv` in the format above.
+3. **Run the matrix** on each corpus (Vulkan and CUDA need their SDKs, see above):
+   ```powershell
+   ./tools/bench/scripts/run-matrix.ps1 -Corpus <corpus.tsv> -Out <results folder> `
+     -Backends cpu,vulkan,cuda
+   ```
+   Each run appends a row to `<results folder>\table.md` and writes per-clip JSON.
+4. Copy the tables into `docs/benchmarks/` and apply the decision rules written there.

@@ -1,0 +1,32 @@
+# Prompts for the personal dictation corpus (M0 gate). One per line; read each one
+# naturally, as you would dictate it. Lines starting with # are ignored.
+Hey Maria, can you send me the quarterly report by Friday afternoon?
+I'll be about ten minutes late to the meeting, so please start without me.
+The new build fixes the crash when you remove a model while it is downloading.
+Let's move the design review to Tuesday at three thirty.
+Thanks for the quick turnaround, this looks great.
+Please pick up milk, eggs, and a loaf of sourdough on your way home.
+Rename the function parse config to load settings and update the tests.
+The meeting notes are in the shared folder under planning slash twenty twenty six.
+I think the second option is better because it keeps the installer small.
+Can you check whether the invoice for March was paid?
+The flight lands at seven forty five, and I'll grab a taxi from the airport.
+Remember to back up the laptop before installing the update.
+We need three more volunteers for Saturday's cleanup at the park.
+The API returns a four oh four when the user ID is missing.
+Honestly, I didn't expect the benchmark to be that fast on the laptop.
+Send the draft to Priya and Jonathan, and copy me on the reply.
+Turn left at the second light, then it's the blue house on the right.
+Our revenue grew twelve percent compared with last quarter.
+Could you review my pull request when you have a moment?
+The dentist appointment is on the fourteenth at nine in the morning.
+Please don't share the password in the group chat.
+I'm working from the office tomorrow, but I'll be remote on Thursday.
+Set the timeout to thirty seconds and retry once before giving up.
+The package weighs two point five kilograms and ships tomorrow.
+What time does the pharmacy close on Sundays?
+Let's call it a day and pick this up first thing tomorrow morning.
+Add a note that the Whisper model needs about two gigabytes of memory.
+My phone number changed, so please update your contacts.
+The kids have soccer practice at five, then dinner at Grandma's.
+All in all, I'm really happy with how this project turned out.
