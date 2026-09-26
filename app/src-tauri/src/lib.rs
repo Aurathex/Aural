@@ -20,7 +20,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 
 fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
     let paths = AppPaths::from_env()?;
@@ -142,6 +142,12 @@ pub fn run() {
                         if let Some(cap) = lock(&app.mic_test).take() {
                             let _ = cap.stop();
                         }
+                        // The window only hides, so the hotkey recorder's own cleanup
+                        // never runs; never leave dictation paused behind a hidden window.
+                        if let Some(h) = lock(&app.hook).as_ref() {
+                            h.set_paused(false);
+                        }
+                        let _ = window.emit("window-hidden", ());
                     }
                 }
             }

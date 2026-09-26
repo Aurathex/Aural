@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { call } from "../lib/api";
+  import { call, on } from "../lib/api";
   import { ChordRecorder } from "../lib/keys";
   import type { AppState, HotkeyCheck, Settings } from "../lib/types";
 
@@ -27,6 +27,11 @@
     }
   }
 
+  // Leaving the window (switching apps, closing it to the tray) ends recording, so the
+  // real hotkey is never left paused.
+  const onBlur = () => void stopRecording();
+  let offHidden: (() => void) | null = null;
+
   async function startRecording() {
     proposal = null;
     recorder.reset();
@@ -34,11 +39,17 @@
     await call("pause_hotkey", { paused: true });
     window.addEventListener("keydown", onDown, true);
     window.addEventListener("keyup", onUp, true);
+    window.addEventListener("blur", onBlur);
+    offHidden = await on("window-hidden", onBlur);
   }
 
   async function stopRecording() {
+    if (!recording) return;
     window.removeEventListener("keydown", onDown, true);
     window.removeEventListener("keyup", onUp, true);
+    window.removeEventListener("blur", onBlur);
+    offHidden?.();
+    offHidden = null;
     recording = false;
     proposal = null;
     await call("pause_hotkey", { paused: false });

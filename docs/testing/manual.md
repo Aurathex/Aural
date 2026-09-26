@@ -21,6 +21,8 @@ the release notes.
 - [ ] Toggle mode: press once to start, once to stop.
 - [ ] Change the hotkey to Right Ctrl in Settings; the new one works immediately and
       the old one doesn't.
+- [ ] Click **Change** for the hotkey, then close the Settings window (or switch to
+      another app) without finishing: dictation with the current hotkey still works.
 
 ## Where text goes
 
