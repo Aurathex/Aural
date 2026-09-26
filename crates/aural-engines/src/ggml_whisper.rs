@@ -123,8 +123,10 @@ pub fn load(model: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Tr
     params.use_gpu(backend != Backend::Cpu);
     let ctx = WhisperContext::new_with_params(model, params)
         .with_context(|| format!("loading whisper model {}", model.display()))?;
-    let backend_used = verify_backend(backend, gpu_device_from_log(&capture::take()).as_deref())?;
+    // whisper.cpp initializes the GPU backend (and logs which one) when the state is
+    // created, not when the model loads, so check only after create_state.
     let state = ctx.create_state().context("creating whisper state")?;
+    let backend_used = verify_backend(backend, gpu_device_from_log(&capture::take()).as_deref())?;
     let name = model
         .file_stem()
         .map_or_else(|| "whisper".into(), |n| n.to_string_lossy().into_owned());
@@ -274,5 +276,23 @@ mod tests {
         let text = t.transcribe(&pcm).unwrap();
         let wer = missed_words(&reference, &text);
         assert!(wer < 0.3, "wer {wer}: {text}");
+    }
+
+    /// A GPU build must report the GPU it initialized, not "fell back to CPU".
+    /// Set AURAL_TEST_GPU_BACKEND=vulkan|cuda and build with that feature:
+    /// `cargo test --release --features ggml,vulkan -- --ignored gpu_backend`.
+    #[test]
+    #[ignore]
+    fn gpu_backend_is_detected() {
+        let model = std::env::var("AURAL_TEST_WHISPER_MODEL").expect("AURAL_TEST_WHISPER_MODEL");
+        let backend = match std::env::var("AURAL_TEST_GPU_BACKEND").as_deref() {
+            Ok("vulkan") => Backend::Vulkan,
+            Ok("cuda") => Backend::Cuda,
+            other => panic!("set AURAL_TEST_GPU_BACKEND to vulkan or cuda, got {other:?}"),
+        };
+        let t = load(std::path::Path::new(&model), backend, 4).unwrap();
+        let used = t.backend_used();
+        let expected = format!("{backend:?}").to_lowercase();
+        assert!(used.starts_with(&expected), "backend_used = {used}");
     }
 }
