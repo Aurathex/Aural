@@ -60,9 +60,9 @@ models and settings too.
 
 ## License
 
-Aural is **source-available**, not open source: you may use, study, modify and share it
-for free for **noncommercial** purposes under the
-[PolyForm Noncommercial License 1.0.0](LICENSE.md). Selling it, bundling it into a
-commercial product or using it commercially needs permission from the copyright holder.
+Aural is **source-available**, not open source. The source is public, and you may use
+Aural for free for personal and other **noncommercial** purposes under the
+[PolyForm Strict License 1.0.0](LICENSE.md). The license does not allow modifying or
+redistributing Aural. Commercial use needs a separate license from Aurathex.
 See [docs/LICENSING.md](docs/LICENSING.md) for the reasoning. Speech models and
 third-party components keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).

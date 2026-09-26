@@ -12,7 +12,7 @@ permissions:
 
 env:
   # Must match LICENSE.md; used for the WinGet manifest.
-  LICENSE_ID: PolyForm-Noncommercial-1.0.0
+  LICENSE_ID: PolyForm-Strict-1.0.0
 
 jobs:
   windows:

@@ -5,8 +5,15 @@
 
 ## What the owner wants
 
-Aural is meant for **personal use**. People should not **sell, repackage or
-redistribute it commercially** without permission.
+Decided by the owner on 2026-09-26:
+
+- The source is public on GitHub.
+- Personal and other noncommercial use is free.
+- The license grants no right to modify Aural and no right to redistribute it.
+- Commercial use needs a permission or license from Aurathex.
+- The Aural and Aurathex names and branding are reserved separately; the software
+  license does not cover them.
+- Third-party dependency and model licenses are preserved.
 
 ## Why MIT / Apache-2.0 cannot stay
 
@@ -24,43 +31,51 @@ license now is clean. After the first public push it would only apply to later v
 | Option | Personal use | Commercial use / resale | Free redistribution & forks | Fit |
 |---|---|---|---|---|
 | MIT or Apache-2.0 (current) | yes | allowed | allowed | fails the requirement |
-| **PolyForm Noncommercial 1.0.0** | yes | **not allowed** (licensor can grant separately) | allowed for noncommercial purposes, with notices | **recommended** |
-| PolyForm Strict 1.0.0 | yes | not allowed | **not allowed** (no distribution, no changes) | stricter; blocks forks and community builds |
+| PolyForm Noncommercial 1.0.0 | yes | not allowed (licensor can grant separately) | allowed for noncommercial purposes, with notices | first recommendation; lets others share and modify |
+| **PolyForm Strict 1.0.0** | yes | **not allowed** (licensor can grant separately) | **not allowed** (no distribution, no changes) | **chosen** |
 | Business Source License 1.1 | configurable | restricted until a "change date", then becomes open source | allowed | more moving parts; time-limited |
 | Creative Commons BY-NC 4.0 | yes | not allowed | allowed | Creative Commons advises against it for software (no patent terms) |
 | Custom EULA / "all rights reserved" + public source | as written | as written | as written | most control; needs a lawyer to write |
 
-**Recommendation: PolyForm Noncommercial 1.0.0.** It is a standard, lawyer-drafted,
-short license built for exactly this ("use it freely, but not commercially"). It has an
-SPDX identifier (`PolyForm-Noncommercial-1.0.0`), so tooling and WinGet understand it,
-and it leaves you free to sell commercial licenses separately.
+**Decision: PolyForm Strict 1.0.0.** PolyForm Noncommercial was recommended first, but it
+lets anyone share and modify Aural for free, which the owner does not want. PolyForm
+Strict is the same standard, lawyer-drafted family with the same noncommercial and
+personal-use grant, but it grants no right to distribute or change the software. It has
+an SPDX identifier (`PolyForm-Strict-1.0.0`), so tooling and WinGet understand it, and it
+leaves Aurathex free to sell commercial licenses separately.
 
 ## Consequences — these need your approval
 
 1. **Aural stops being "open source".** The OSI definition forbids restricting
    commercial use. The accurate term is **source-available**. The original brief said
    "open source"; that wording has to change everywhere (README, repo description).
-2. **"Noncommercial" is broader than "personal only".** PolyForm Noncommercial also lets
-   charities, schools, public research bodies and government use Aural for free. If you
-   want *personal use only*, choose PolyForm Strict (which also bans redistribution and
-   modification) or have a custom license written.
-3. **Free redistribution stays allowed.** Under PolyForm Noncommercial someone may share
-   the installer or a modified build for free, as long as they keep the notices and
-   make no money from it. PolyForm Strict would forbid that too.
-4. **Contributions.** Contributors would license their changes to you under the same
-   noncommercial terms, so you could not sell commercial licenses that include their
-   code without a contributor license agreement (CLA). Until you decide, CONTRIBUTING.md
-   says pull requests aren't accepted.
-5. **Code signing.** The SignPath Foundation's free signing is for OSI-licensed projects
+2. **"Noncommercial" is broader than "personal only".** PolyForm Strict, like
+   Noncommercial, also lets charities, schools, public research bodies and government
+   use Aural for free. Limiting it to individuals would need a custom license.
+3. **No redistribution or changes, by anyone but Aurathex.** Nobody may share the
+   installer, publish a modified build, or even change it for their own use under the
+   license. Fair-use rights are unaffected. The official download (GitHub Releases and a
+   WinGet manifest that points there) is Aurathex distributing, so it is not affected.
+4. **GitHub's own terms still apply.** Publishing a public repository gives other GitHub
+   users a license under GitHub's Terms of Service to view it and fork it within GitHub,
+   whatever `LICENSE.md` says. That permission is limited to GitHub's own features;
+   outside GitHub, only the Aural license applies.
+5. **Contributions.** The license does not let anyone change the code, and there are
+   no contributor terms (for example a CLA), so CONTRIBUTING.md says pull requests
+   aren't accepted.
+6. **Code signing.** The SignPath Foundation's free signing is for OSI-licensed projects
    only, so it is no longer available. The alternatives are Azure Artifact Signing
    (about US$10 a month; individuals were eligible only in the US and Canada when
    checked), a commercial OV certificate, or staying unsigned (SmartScreen warnings).
-6. **Who is the licensor?** The copyright line reads "Aurathex". That only works if
+7. **Who is the licensor?** The copyright line reads "Aurathex". That only works if
    Aurathex is you (a trading name) or a legal entity you control; otherwise use your
-   legal name. The WinGet publisher "Aurathex" and identifier `Aurathex.Aural` should
-   match whatever you choose, because they are hard to change later. Neither "Aural"
-   nor "Aurathex" has been checked for trademark conflicts.
-7. **AI-assisted code.** Much of the code was written with an AI assistant under your
+   legal name. The line in `LICENSE.md` still starts with `Required Notice:`, a label
+   carried over from PolyForm Noncommercial; PolyForm Strict has no notice clause, so it
+   now reads as a plain copyright notice. The WinGet publisher "Aurathex" and
+   identifier `Aurathex.Aural` should match whatever you choose, because they are hard
+   to change later. Neither "Aural" nor "Aurathex" has been checked for trademark
+   conflicts.
+8. **AI-assisted code.** Much of the code was written with an AI assistant under your
    direction. In some jurisdictions purely AI-generated material may not be
    copyrightable, which could weaken enforcement of any license on those parts. Your
    review, selection and changes strengthen your claim; a lawyer can advise.
@@ -88,14 +103,14 @@ Everything else keeps its own terms, and those terms are respected as follows.
 - **WebView2** is installed by Microsoft's own bootstrapper; it is not redistributed by
   Aural.
 
-## What was changed in this commit
+## What was changed
 
-Everything below is in a single commit, so it can be dropped or swapped (for example
-to PolyForm Strict) before anything is published:
+The license switch is kept in isolated commits so it can be reviewed or reverted on
+its own:
 
-- `LICENSE.md`: the PolyForm Noncommercial 1.0.0 text, unmodified, plus the required
-  notice line.
-- `LICENSE-MIT` and `LICENSE-APACHE` removed.
-- `Cargo.toml` and `package.json` license fields set to `PolyForm-Noncommercial-1.0.0`.
-- README, CONTRIBUTING and the About page updated. The WinGet `License` field already
-  uses this identifier in `release.yml`.
+- `LICENSE.md`: the PolyForm Strict 1.0.0 text, unmodified (from
+  github.com/polyformproject/polyform-licenses), under the existing copyright line.
+  It replaced PolyForm Noncommercial 1.0.0, which had replaced MIT / Apache-2.0.
+- `Cargo.toml`, `app/package.json`, `release.yml` (WinGet `License`) and the WinGet
+  packaging docs use `PolyForm-Strict-1.0.0`.
+- README, CONTRIBUTING and the About page describe the Strict terms.

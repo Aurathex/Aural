@@ -15,7 +15,7 @@ are generated from that file rather than kept in this repository:
 ```powershell
 ./packaging/winget/New-WingetManifests.ps1 -Version 0.1.0 `
   -Installer target/release/bundle/nsis/Aural_0.1.0_x64-setup.exe `
-  -Repository Djdhmf/Aural -License PolyForm-Noncommercial-1.0.0 -OutDir winget-out
+  -Repository Djdhmf/Aural -License PolyForm-Strict-1.0.0 -OutDir winget-out
 winget validate --manifest winget-out/manifests/a/Aurathex/Aural/0.1.0
 ```
 
@@ -34,7 +34,7 @@ The `Release` workflow does this automatically and attaches the result.
 
 - The installer URL must be public, so the GitHub repository and release must be public.
 - The `License` field must match `LICENSE.md` at that tag.
-- The WinGet community repository accepts source-available and non-commercial software;
+- The WinGet community repository lists proprietary and source-available software, not only open source;
   the manifest only points at our download, it doesn't redistribute it.
 - Choose whether "Aurathex" is the publisher name you want permanently: the identifier
   `Aurathex.Aural` can't be renamed cheaply once people have installed it.
