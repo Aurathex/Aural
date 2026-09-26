@@ -24,8 +24,9 @@ The `Release` workflow does this automatically and attaches the result.
 ## Submitting
 
 - **Automated:** run the `Submit to WinGet` workflow (needs a `WINGET_TOKEN` secret, a
-  GitHub token with `public_repo` scope). It uses
-  [wingetcreate](https://github.com/microsoft/winget-create) to open the pull request.
+  GitHub token with `public_repo` scope). It uses a pinned, hash-checked
+  [wingetcreate](https://github.com/microsoft/winget-create) release to validate the
+  manifests and open the pull request.
 - **By hand:** fork microsoft/winget-pkgs, copy the three YAML files to
   `manifests/a/Aurathex/Aural/<version>/`, and open a pull request.
 

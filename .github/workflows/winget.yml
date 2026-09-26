@@ -2,8 +2,9 @@ name: Submit to WinGet
 
 # Run by hand after a release has been published. It downloads that release's
 # generated manifests and opens a pull request on microsoft/winget-pkgs with
-# wingetcreate. Needs a WINGET_TOKEN secret: a classic GitHub token with public_repo
-# scope for the account that will own the fork of winget-pkgs.
+# wingetcreate, which validates the manifests before submitting. Needs a WINGET_TOKEN
+# secret: a classic GitHub token with public_repo scope for the account that will own
+# the fork of winget-pkgs.
 on:
   workflow_dispatch:
     inputs:
@@ -14,6 +15,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned wingetcreate release, checked by hash before it ever sees the token.
+  WINGETCREATE_URL: https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe
+  WINGETCREATE_SHA256: 24042bd37915805615e6cf969ac57c6439124c3fe85823327f5f3fb24bd9ffea
+
 jobs:
   submit:
     runs-on: windows-latest
@@ -23,13 +29,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "v${{ inputs.version }}" --repo "${{ github.repository }}" --pattern "winget-manifests-*.zip"
 
-      - name: Validate and submit
+      - name: Get wingetcreate (pinned, hash-checked)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest $env:WINGETCREATE_URL -OutFile wingetcreate.exe
+          $hash = (Get-FileHash wingetcreate.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $env:WINGETCREATE_SHA256) { throw "wingetcreate.exe hash mismatch: $hash" }
+
+      - name: Submit
         shell: pwsh
         env:
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
           Expand-Archive "winget-manifests-${{ inputs.version }}.zip" -DestinationPath .
-          $dir = "manifests/a/Aurathex/Aural/${{ inputs.version }}"
-          winget validate --manifest $dir
-          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
-          ./wingetcreate.exe submit --token $env:WINGET_TOKEN $dir
+          ./wingetcreate.exe submit --token $env:WINGET_TOKEN "manifests/a/Aurathex/Aural/${{ inputs.version }}"
