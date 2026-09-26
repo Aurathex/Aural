@@ -6,6 +6,22 @@ members = [
   "crates/aural-engines",
   "crates/aural-models",
   "crates/aural-platform",
+  "crates/aural-stt-protocol",
+  "tools/bench",
+  "workers/stt-onnx",
+  "workers/stt-ggml",
+]
+# The two workers enable mutually exclusive aural-engines features (ONNX Runtime and
+# whisper.cpp must not link into one binary), so they are built one at a time with
+# `-p aural-stt-onnx` / `-p aural-stt-ggml` and are left out of plain `cargo build`,
+# `cargo test` and `cargo clippy`. Never use `--workspace`.
+default-members = [
+  "crates/aural-core",
+  "crates/aural-audio",
+  "crates/aural-engines",
+  "crates/aural-models",
+  "crates/aural-platform",
+  "crates/aural-stt-protocol",
   "tools/bench",
 ]
 

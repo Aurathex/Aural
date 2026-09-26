@@ -211,6 +211,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "aural-stt-ggml"
+version = "0.1.0"
+dependencies = [
+ "aural-audio",
+ "aural-engines",
+ "aural-stt-protocol",
+]
+
+[[package]]
+name = "aural-stt-onnx"
+version = "0.1.0"
+dependencies = [
+ "aural-audio",
+ "aural-engines",
+ "aural-stt-protocol",
+]
+
+[[package]]
+name = "aural-stt-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aural-engines",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

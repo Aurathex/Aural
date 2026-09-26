@@ -1,0 +1,21 @@
+[package]
+name = "aural-stt-ggml"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Aural speech worker for ggml engines (Whisper via whisper.cpp)."
+
+[features]
+vulkan = ["aural-engines/vulkan"]
+cuda = ["aural-engines/cuda"]
+
+[dependencies]
+aural-engines = { path = "../../crates/aural-engines", features = ["ggml"] }
+aural-stt-protocol = { path = "../../crates/aural-stt-protocol" }
+
+[dev-dependencies]
+aural-audio = { path = "../../crates/aural-audio" }
+
+[lints]
+workspace = true

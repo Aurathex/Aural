@@ -1,0 +1,25 @@
+[package]
+name = "aural-stt-protocol"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Aural STT worker protocol: framed messages over stdin/stdout, worker loop and resilient client."
+
+[[bin]]
+# Test double used by the client's integration tests (crash / hang / bad version).
+name = "aural-fake-stt"
+path = "src/bin/fake_stt.rs"
+test = false
+
+[dependencies]
+anyhow = "1.0.104"
+aural-engines = { path = "../aural-engines" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.151"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "aural-stt-onnx"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Aural speech worker for ONNX engines (Parakeet)."
+
+[dependencies]
+aural-engines = { path = "../../crates/aural-engines", features = ["onnx"] }
+aural-stt-protocol = { path = "../../crates/aural-stt-protocol" }
+
+[dev-dependencies]
+aural-audio = { path = "../../crates/aural-audio" }
+
+[lints]
+workspace = true
