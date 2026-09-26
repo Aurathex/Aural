@@ -130,7 +130,7 @@ pub fn start(
                 let timeout = Some(Duration::from_secs(3));
                 let stream = match supported.sample_format() {
                     cpal::SampleFormat::F32 => dev.build_input_stream::<f32, _, _>(
-                        config.clone(),
+                        config,
                         move |data, _| {
                             push(
                                 &mut data
@@ -142,7 +142,7 @@ pub fn start(
                         timeout,
                     ),
                     cpal::SampleFormat::I16 => dev.build_input_stream::<i16, _, _>(
-                        config.clone(),
+                        config,
                         move |data, _| {
                             push(&mut data.chunks(channels).map(|f| {
                                 f.iter().map(|s| *s as f32 / 32768.0).sum::<f32>() / channels as f32
