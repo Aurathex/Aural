@@ -11,12 +11,67 @@ own license (LICENSE.md) does not change their terms.
 - **Microsoft Visual C++ runtime** (`msvcp140.dll`, `msvcp140_1.dll`,
   `vcruntime140.dll`, `vcruntime140_1.dll`) — © Microsoft Corporation; redistributable
   files from Visual Studio, shipped unmodified next to Aural's programs.
-- **ONNX Runtime** — © Microsoft Corporation, MIT License; statically linked into
-  `aural-stt-onnx.exe` (license text under Rust crates: `ort-sys`).
-- **whisper.cpp / ggml** — © The ggml authors, MIT License; compiled into
-  `aural-stt-ggml.exe` (license text under Rust crates: `whisper-rs-sys`).
+- **ONNX Runtime 1.24.2** — © Microsoft Corporation, MIT License (text below);
+  statically linked into `aural-stt-onnx.exe`. ONNX Runtime's own third-party notices
+  are installed next to Aural as `licenses\onnxruntime-ThirdPartyNotices.txt`.
+- **whisper.cpp / ggml** — © The ggml authors, MIT License (text below); compiled into
+  `aural-stt-ggml.exe`.
 - **Mozilla CA certificate list** (via `webpki-roots`) — CDLA-Permissive-2.0; used to
   verify HTTPS model downloads.
+
+## Native library licenses
+
+### ONNX Runtime
+
+```text
+MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### whisper.cpp / ggml
+
+```text
+MIT License
+
+Copyright (c) 2023-2024 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## Installed separately
 

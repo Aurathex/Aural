@@ -34,10 +34,11 @@ own license (LICENSE.md) does not change their terms.
 - **Microsoft Visual C++ runtime** (`msvcp140.dll`, `msvcp140_1.dll`,
   `vcruntime140.dll`, `vcruntime140_1.dll`) — © Microsoft Corporation; redistributable
   files from Visual Studio, shipped unmodified next to Aural's programs.
-- **ONNX Runtime** — © Microsoft Corporation, MIT License; statically linked into
-  `aural-stt-onnx.exe` (license text under Rust crates: `ort-sys`).
-- **whisper.cpp / ggml** — © The ggml authors, MIT License; compiled into
-  `aural-stt-ggml.exe` (license text under Rust crates: `whisper-rs-sys`).
+- **ONNX Runtime 1.24.2** — © Microsoft Corporation, MIT License (text below);
+  statically linked into `aural-stt-onnx.exe`. ONNX Runtime's own third-party notices
+  are installed next to Aural as `licenses\onnxruntime-ThirdPartyNotices.txt`.
+- **whisper.cpp / ggml** — © The ggml authors, MIT License (text below); compiled into
+  `aural-stt-ggml.exe`.
 - **Mozilla CA certificate list** (via `webpki-roots`) — CDLA-Permissive-2.0; used to
   verify HTTPS model downloads.
 
@@ -59,7 +60,12 @@ own license (LICENSE.md) does not change their terms.
 ## JavaScript packages compiled into the user interface
 
 '@
-    $body = $header + ($npm -join "`n") + "`n" + (Get-Content $rust -Raw)
+    $native = foreach ($pair in @(@('ONNX Runtime', 'licenses\onnxruntime\LICENSE'), @('whisper.cpp / ggml', 'licenses\ggml\LICENSE'))) {
+        $text = (Get-Content (Join-Path $root $pair[1]) -Raw).Trim()
+        "### $($pair[0])`n`n``````text`n$text`n```````n"
+    }
+    $body = $header.Replace('## Installed separately', "## Native library licenses`n`n" + ($native -join "`n") + "`n## Installed separately") +
+        ($npm -join "`n") + "`n" + (Get-Content $rust -Raw)
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [IO.File]::WriteAllText((Join-Path $root 'THIRD_PARTY_NOTICES.md'), $body.Replace("`r`n", "`n"), $utf8)
     Write-Output "Wrote THIRD_PARTY_NOTICES.md"
