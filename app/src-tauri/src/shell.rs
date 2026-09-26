@@ -1,7 +1,5 @@
 //! Opening Settings pages and folders, and launching the uninstaller after Aural exits.
 
-use std::path::Path;
-
 /// Open a URI or folder with the Windows shell (no console window).
 pub fn open(target: &str) {
     #[cfg(windows)]
@@ -25,23 +23,19 @@ pub fn open(target: &str) {
     }
 }
 
-/// Start `program` about two seconds from now, detached, so it runs after Aural has
-/// exited and released its files (used for the silent uninstaller).
-pub fn run_after_exit(program: &Path, args: &[String]) {
+/// Run a prepared `cmd.exe /C` line detached and hidden. It outlives Aural, which is
+/// how the Delete Aural cleanup runs after the app has released its files.
+pub fn run_detached(cmd_line: &str) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
-        let mut line = format!("ping 127.0.0.1 -n 3 >nul & \"{}\"", program.display());
-        for a in args {
-            line.push(' ');
-            line.push_str(a);
-        }
-        let _ = std::process::Command::new("cmd.exe")
+        std::process::Command::new("cmd.exe")
             .raw_arg("/C")
-            .raw_arg(&line)
+            .raw_arg(cmd_line)
             .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
-            .spawn();
+            .spawn()?;
     }
+    Ok(())
 }

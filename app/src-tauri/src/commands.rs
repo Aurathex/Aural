@@ -229,8 +229,9 @@ pub fn open_data_folder(app: State<'_, Arc<App>>) {
 }
 
 /// "Delete Aural". Refuses unless the exact confirmation phrase was typed (the window
-/// checks too; this is the authoritative check). Removes models, logs, settings and
-/// the startup entry, then runs the installer's uninstaller silently and quits.
+/// checks too; this is the authoritative check). Removes the startup entry, quits, and
+/// leaves a cleanup step that deletes models, logs and settings once Aural's files are
+/// released and then runs the installer's uninstaller silently.
 #[tauri::command]
 pub fn delete_aural(app: State<'_, Arc<App>>, confirmation: String) -> Res<()> {
     if !uninstall::is_confirmed(&confirmation) {
@@ -243,6 +244,8 @@ pub fn delete_aural(app: State<'_, Arc<App>>, confirmation: String) -> Res<()> {
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
     let plan = uninstall::plan(&app.paths, install_dir.as_deref());
+    // Validate before touching anything: a refused plan leaves Aural fully working.
+    let cleanup = plan.after_exit_command().map_err(err)?;
 
     // Stop everything that holds files open.
     *lock(&app.hook) = None;
@@ -260,10 +263,7 @@ pub fn delete_aural(app: State<'_, Arc<App>>, confirmation: String) -> Res<()> {
             );
         }
     }
-    uninstall::remove_dirs(&plan).map_err(err)?;
-    if let Some(cmd) = &plan.run_uninstaller {
-        crate::shell::run_after_exit(&cmd.program, &cmd.args);
-    }
+    crate::shell::run_detached(&cleanup).map_err(err)?;
     let _ = app.handle.emit_to("main", "deleted", ());
     let handle = app.handle.clone();
     std::thread::spawn(move || {

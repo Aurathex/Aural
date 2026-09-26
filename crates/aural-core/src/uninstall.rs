@@ -2,7 +2,7 @@
 //! executes the plan; keeping it pure makes the guard and the scope testable.
 
 use crate::paths::AppPaths;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 
 /// The exact phrase the user must type. Case, spacing and punctuation must match;
@@ -52,38 +52,50 @@ pub fn plan(paths: &AppPaths, install_dir: Option<&Path>) -> DeletionPlan {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct RemovalReport {
-    pub removed: Vec<PathBuf>,
-}
+impl DeletionPlan {
+    /// Refuses anything that is not one of Aural's own roots, and any root that
+    /// contains the installed program, so a wrong plan can never delete other folders.
+    pub fn validate(&self) -> Result<()> {
+        for dir in &self.remove_dirs {
+            if !self.allowed_roots.iter().any(|r| r == dir) {
+                bail!("refusing to delete {}: not an Aural folder", dir.display());
+            }
+            if self
+                .install_dir
+                .as_ref()
+                .is_some_and(|i| i.starts_with(dir))
+            {
+                bail!(
+                    "refusing to delete {}: it contains the installed program",
+                    dir.display()
+                );
+            }
+        }
+        Ok(())
+    }
 
-/// Delete the planned directories. Refuses anything that is not one of Aural's roots,
-/// so a corrupted plan can never delete arbitrary folders.
-pub fn remove_dirs(plan: &DeletionPlan) -> Result<RemovalReport> {
-    for dir in &plan.remove_dirs {
-        if !plan.allowed_roots.iter().any(|r| r == dir) {
-            bail!("refusing to delete {}: not an Aural folder", dir.display());
+    /// Command line for `cmd.exe /C`, run after Aural has exited (WebView2 and the
+    /// speech worker hold files open until then): wait ~2 s, delete the data and
+    /// settings folders, then run the uninstaller silently.
+    pub fn after_exit_command(&self) -> Result<String> {
+        self.validate()?;
+        let quote = |p: &Path| -> Result<String> {
+            let s = p.display().to_string();
+            // Inside double quotes cmd treats & | < > ^ literally, but not " or %.
+            if s.contains(['"', '%', '\r', '\n']) {
+                bail!("cannot safely pass {s:?} to the cleanup step");
+            }
+            Ok(format!("\"{s}\""))
+        };
+        let mut steps = vec!["ping 127.0.0.1 -n 3 >nul".to_owned()];
+        for dir in &self.remove_dirs {
+            steps.push(format!("rmdir /s /q {}", quote(dir)?));
         }
-        if plan
-            .install_dir
-            .as_ref()
-            .is_some_and(|i| i.starts_with(dir))
-        {
-            bail!(
-                "refusing to delete {}: it contains the installed program",
-                dir.display()
-            );
+        if let Some(u) = &self.run_uninstaller {
+            steps.push(format!("{} {}", quote(&u.program)?, u.args.join(" ")));
         }
+        Ok(steps.join(" & "))
     }
-    let mut report = RemovalReport::default();
-    for dir in &plan.remove_dirs {
-        match std::fs::remove_dir_all(dir) {
-            Ok(()) => report.removed.push(dir.clone()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e).with_context(|| format!("deleting {}", dir.display())),
-        }
-    }
-    Ok(report)
 }
 
 #[cfg(test)]
@@ -145,37 +157,84 @@ mod tests {
     }
 
     #[test]
-    fn execute_removes_planned_dirs_and_tolerates_missing_ones() {
-        let root = tempfile::tempdir().unwrap();
-        let paths = AppPaths::under(root.path());
-        std::fs::create_dir_all(paths.models_dir().join("m1")).unwrap();
-        std::fs::write(paths.models_dir().join("m1/weights.onnx"), b"x").unwrap();
-        // config dir intentionally missing
-        let p = plan(&paths, None);
-        let report = remove_dirs(&p).unwrap();
-        assert!(!paths.data_dir.exists());
-        assert_eq!(report.removed, vec![paths.data_dir.clone()]);
+    fn after_exit_command_waits_removes_data_then_runs_the_uninstaller() {
+        let root = Path::new(r"C:\Users\A B\AppData");
+        let paths = AppPaths::under(root);
+        let install = tempfile::tempdir().unwrap();
+        std::fs::write(install.path().join("uninstall.exe"), b"").unwrap();
+        let cmd = plan(&paths, Some(install.path()))
+            .after_exit_command()
+            .unwrap();
+        let wait = cmd.find("ping 127.0.0.1").unwrap();
+        let data = cmd
+            .find(r#"rmdir /s /q "C:\Users\A B\AppData\data""#)
+            .unwrap();
+        let config = cmd
+            .find(r#"rmdir /s /q "C:\Users\A B\AppData\config""#)
+            .unwrap();
+        let uninstall = cmd
+            .find(&format!(
+                "\"{}\" /S",
+                install.path().join("uninstall.exe").display()
+            ))
+            .unwrap();
+        assert!(wait < data && data < config && config < uninstall, "{cmd}");
+    }
+
+    #[test]
+    fn after_exit_command_without_installer_only_removes_data() {
+        let paths = AppPaths::under(Path::new(r"C:\root"));
+        let cmd = plan(&paths, None).after_exit_command().unwrap();
+        assert!(cmd.contains("rmdir") && !cmd.contains("uninstall"), "{cmd}");
     }
 
     #[test]
     fn refuses_when_a_data_folder_contains_the_installed_program() {
-        // e.g. data configured to live in the install folder: deleting it would remove
-        // the uninstaller before it runs.
+        // Deleting it would remove the program and its uninstaller mid-way.
         let root = tempfile::tempdir().unwrap();
         let paths = AppPaths::under(root.path());
         let install = paths.data_dir.join("app");
-        std::fs::create_dir_all(&install).unwrap();
-        std::fs::write(install.join("uninstall.exe"), b"").unwrap();
         let p = plan(&paths, Some(&install));
-        assert!(remove_dirs(&p).is_err());
-        assert!(install.join("uninstall.exe").exists());
+        assert!(p.after_exit_command().is_err());
     }
 
     #[test]
-    fn refuses_to_remove_a_directory_outside_the_aural_roots() {
-        let paths = AppPaths::under(Path::new("C:/root"));
+    fn refuses_a_directory_outside_the_aural_roots() {
+        let paths = AppPaths::under(Path::new(r"C:\root"));
         let mut p = plan(&paths, None);
-        p.remove_dirs.push(Path::new("C:/Windows").to_path_buf());
-        assert!(remove_dirs(&p).is_err());
+        p.remove_dirs.push(Path::new(r"C:\Windows").to_path_buf());
+        assert!(p.after_exit_command().is_err());
+    }
+
+    #[test]
+    fn refuses_paths_that_would_break_out_of_the_command() {
+        let paths = AppPaths::under(Path::new(r#"C:\x" & del C:\y & ""#));
+        assert!(plan(&paths, None).after_exit_command().is_err());
+    }
+
+    /// Runs the real command with cmd.exe against temp folders (takes ~2 s).
+    #[cfg(windows)]
+    #[test]
+    fn after_exit_command_really_deletes_the_folders() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(root.path());
+        std::fs::create_dir_all(paths.models_dir().join("m")).unwrap();
+        std::fs::write(paths.models_dir().join("m").join("w.onnx"), b"x").unwrap();
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        std::fs::write(paths.settings_file(), b"{}").unwrap();
+        let cmd = plan(&paths, None).after_exit_command().unwrap();
+        use std::os::windows::process::CommandExt;
+        let status = std::process::Command::new("cmd.exe")
+            .raw_arg("/C")
+            .raw_arg(&cmd)
+            .status()
+            .unwrap();
+        assert!(status.success() || !paths.data_dir.exists());
+        assert!(!paths.data_dir.exists(), "data folder still there");
+        assert!(!paths.config_dir.exists(), "config folder still there");
+        assert!(
+            root.path().exists(),
+            "must not touch anything above the roots"
+        );
     }
 }
