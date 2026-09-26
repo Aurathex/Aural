@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/aural-core"]
+members = ["crates/aural-core", "tools/bench"]
 
 [workspace.package]
 edition = "2021"

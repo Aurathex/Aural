@@ -3,5 +3,9 @@
 version = 4
 
 [[package]]
+name = "aural-bench"
+version = "0.0.0"
+
+[[package]]
 name = "aural-core"
 version = "0.0.0"
