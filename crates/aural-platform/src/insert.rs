@@ -633,6 +633,10 @@ mod win {
         }
     }
 
+    /// How long pasted text stays on the clipboard after the paste keys, at least. The
+    /// page's paste in a Chromium browser follows the key press by tens of milliseconds.
+    const PASTE_HOLD: Duration = Duration::from_millis(400);
+
     /// Offer `text`, press paste via `press`, and restore `previous` once the target
     /// has read the text. See `PasteResult`.
     pub fn paste_and_restore(
@@ -672,12 +676,20 @@ mod win {
             }
         }
         press()?;
-        let deadline = Instant::now() + timeout;
+        let pressed = Instant::now();
+        let deadline = pressed + timeout;
         while !RENDERED.with(|r| r.get()) && Instant::now() < deadline {
             owner.pump();
             std::thread::sleep(Duration::from_millis(5));
         }
         if RENDERED.with(|r| r.get()) {
+            // The first read is not necessarily the paste: Chromium browsers read new
+            // clipboard text as soon as it appears, and once rendered later reads don't
+            // reach us. Keep the text on the clipboard long enough for the real paste.
+            while pressed.elapsed() < PASTE_HOLD {
+                owner.pump();
+                std::thread::sleep(Duration::from_millis(5));
+            }
             // The target has the text. Put the old clipboard back unless something
             // else (the user, another app) has taken the clipboard since.
             // Delivered: forget it, or destroying the owner window would render it
@@ -882,6 +894,40 @@ mod tests {
             assert_eq!(
                 rx.recv_timeout(Duration::from_secs(2)).unwrap().as_deref(),
                 Some("dictated text")
+            );
+            assert_eq!(read_clipboard_text().as_deref(), Some("previous clipboard"));
+        }
+
+        /// Chromium browsers (Chrome, Edge, Brave, Opera) read new clipboard text as soon
+        /// as it appears, for their "paste this link" suggestions, before the page's paste
+        /// happens. That early read must not trigger the restore, or the page pastes the
+        /// old clipboard (found in the ChatGPT composer in Brave).
+        #[test]
+        fn an_early_read_by_a_clipboard_watcher_does_not_restore_before_the_paste() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            set_clipboard_text("previous clipboard", false).unwrap();
+            let (tx, rx) = mpsc::channel();
+            let mut press = move || -> anyhow::Result<()> {
+                std::thread::spawn(read_clipboard_text); // the browser's clipboard watcher
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(150)); // the page's paste
+                    let _ = tx.send(read_clipboard_text());
+                });
+                Ok(())
+            };
+            let got = paste_and_restore(
+                "dictated text",
+                Some("previous clipboard".into()),
+                &mut press,
+                Duration::from_secs(2),
+            )
+            .unwrap();
+            assert_eq!(got, PasteResult::Read);
+            assert_eq!(
+                rx.recv_timeout(Duration::from_secs(2)).unwrap().as_deref(),
+                Some("dictated text"),
+                "the page pasted the old clipboard"
             );
             assert_eq!(read_clipboard_text().as_deref(), Some("previous clipboard"));
         }
