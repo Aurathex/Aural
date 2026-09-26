@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <title>Aural listening</title>
-    <style>html, body { margin: 0; background: transparent; overflow: hidden; }</style>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      /* The window is 8px larger than the pill on every side (see pill.rs); centre it. */
+      body { display: flex; align-items: center; justify-content: center; }
+    </style>
   </head>
   <body>
     <div id="pill"></div>
