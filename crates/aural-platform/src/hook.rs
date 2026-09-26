@@ -11,8 +11,8 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-    VIRTUAL_KEY,
+    GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+    KEYEVENTF_KEYUP, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
@@ -58,6 +58,12 @@ fn send_mask() {
     unsafe { SendInput(&[k(false), k(true)], std::mem::size_of::<INPUT>() as i32) };
 }
 
+/// Key state as Windows sees it right now (before the event being processed).
+fn physically_down(vk: u16) -> bool {
+    // SAFETY: no preconditions.
+    (unsafe { GetAsyncKeyState(vk as i32) } as u16) & 0x8000 != 0
+}
+
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         // SAFETY: for WH_KEYBOARD_LL with HC_ACTION, lparam points to KBDLLHOOKSTRUCT.
@@ -68,9 +74,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         if let Ok(mut guard) = state().try_lock() {
             if let Some(s) = guard.as_mut() {
                 if !s.paused {
-                    let out =
-                        s.matcher
-                            .on_key(kb.vkCode as u16, down, injected && !s.accept_injected);
+                    let out = s.matcher.on_key_checked(
+                        kb.vkCode as u16,
+                        down,
+                        injected && !s.accept_injected,
+                        &physically_down,
+                    );
                     if let Some(ev) = out.event {
                         if ev == HotkeyEvent::Down && s.matcher.chord().needs_mask_key() {
                             // Win/Alt are still held: a mask key now stops their

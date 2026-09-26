@@ -307,10 +307,39 @@ impl ChordMatcher {
     }
 
     pub fn on_key(&mut self, vk: u16, down: bool, injected: bool) -> MatchOutput {
+        self.on_key_checked(vk, down, injected, &|_| true)
+    }
+
+    /// Like `on_key`, but first forgets keys Windows says are no longer held.
+    /// `physically_down(vk)` reports a key's state *before* this event (as
+    /// GetAsyncKeyState does inside a low-level hook). Key-ups that happen on the lock
+    /// screen or the Ctrl+Alt+Del screen never reach the hook, so without this a key
+    /// can stay "held" forever.
+    pub fn on_key_checked(
+        &mut self,
+        vk: u16,
+        down: bool,
+        injected: bool,
+        physically_down: &dyn Fn(u16) -> bool,
+    ) -> MatchOutput {
         if injected {
             return MatchOutput::default();
         }
         if down {
+            // A key we think is held but that was up before this event is a real new
+            // press (its key-up was lost), not auto-repeat.
+            if self.pressed.contains(&vk) && !physically_down(vk) {
+                self.pressed.remove(&vk);
+                self.swallowed.remove(&vk);
+            }
+            let before = self.pressed.len();
+            self.pressed.retain(|&k| k == vk || physically_down(k));
+            if self.pressed.len() != before {
+                self.swallowed.retain(|k| self.pressed.contains(k));
+                if self.latched && !self.pressed.iter().any(|&k| self.chord.contains(k)) {
+                    self.latched = false;
+                }
+            }
             let repeat = !self.pressed.insert(vk);
             if repeat {
                 return MatchOutput {
@@ -449,6 +478,43 @@ mod tests {
     fn chord_does_not_fire_if_another_key_was_already_held() {
         let mut m = ChordMatcher::new(chord(&["Ctrl", "Win"]));
         assert!(feed(&mut m, &[(LSHIFT, true), (LCTRL, true), (LWIN, true)]).is_empty());
+    }
+
+    /// Key-ups that happen on the lock screen never reach a low-level hook: after
+    /// Win + L the matcher still thinks Win is held.
+    #[test]
+    fn stuck_win_from_the_lock_screen_does_not_turn_ctrl_into_the_hotkey() {
+        let mut m = ChordMatcher::new(chord(&["Ctrl", "Win"]));
+        m.on_key(LWIN, true, false); // Win + L: Win's key-up is never seen
+        let physically_down = |vk: u16| vk == LCTRL; // only Ctrl is really held now
+        let out = m.on_key_checked(LCTRL, true, false, &physically_down);
+        assert_eq!(out.event, None, "plain Ctrl must not start dictation");
+    }
+
+    #[test]
+    fn stale_keys_from_ctrl_alt_del_do_not_block_the_hotkey() {
+        let mut m = ChordMatcher::new(chord(&["Ctrl", "Win"]));
+        let lalt = 0xA4;
+        let del = 0x2E;
+        for vk in [LCTRL, lalt, del] {
+            m.on_key(vk, true, false); // secure desktop swallows the key-ups
+        }
+        m.on_key(LCTRL, false, false);
+        let down = |vk: u16| vk == LCTRL || vk == LWIN;
+        m.on_key_checked(LCTRL, true, false, &down);
+        let out = m.on_key_checked(LWIN, true, false, &down);
+        assert_eq!(out.event, Some(HotkeyEvent::Down));
+    }
+
+    #[test]
+    fn a_re_pressed_stuck_key_is_evaluated_again() {
+        let mut m = ChordMatcher::new(chord(&["F9"]));
+        m.on_key(F9, true, false); // key-up lost
+        let up_now = |_: u16| false;
+        m.on_key_checked(LSHIFT, true, false, &up_now); // any key prunes stale F9
+        m.on_key_checked(LSHIFT, false, false, &up_now);
+        let out = m.on_key_checked(F9, true, false, &|vk| vk == F9);
+        assert_eq!(out.event, Some(HotkeyEvent::Down));
     }
 
     #[test]
