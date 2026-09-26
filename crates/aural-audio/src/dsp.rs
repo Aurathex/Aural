@@ -37,7 +37,7 @@ pub fn load_wav_16k_mono(path: &Path) -> Result<Vec<f32>> {
     resample_mono(&mono, spec.sample_rate)
 }
 
-fn resample_mono(mono: &[f32], rate: u32) -> Result<Vec<f32>> {
+pub fn resample_mono(mono: &[f32], rate: u32) -> Result<Vec<f32>> {
     if rate == TARGET_RATE || mono.is_empty() {
         return Ok(mono.to_vec());
     }
