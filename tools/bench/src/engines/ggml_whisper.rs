@@ -27,6 +27,87 @@ pub struct Whisper {
     state: WhisperState,
     threads: usize,
     label: String,
+    backend_used: String,
+}
+
+/// GPU device whisper.cpp actually initialized, read from its init log. `None` means it
+/// is running on CPU (no GPU requested, none found, or GPU init failed).
+pub fn gpu_device_from_log(lines: &[String]) -> Option<String> {
+    const PREFIX: &str = "whisper_backend_init_gpu: ";
+    let mut device = None;
+    for line in lines {
+        let Some(rest) = line.trim().strip_prefix(PREFIX) else {
+            continue;
+        };
+        if let Some(name) = rest
+            .strip_prefix("using ")
+            .and_then(|r| r.strip_suffix(" backend"))
+        {
+            device = Some(name.to_owned());
+        } else if rest.starts_with("failed to initialize") || rest.starts_with("no GPU found") {
+            device = None;
+        }
+    }
+    device
+}
+
+/// Refuse to report a GPU benchmark that silently ran on the CPU.
+pub fn verify_backend(requested: Backend, gpu_device: Option<&str>) -> Result<String> {
+    let expected_prefix = match requested {
+        Backend::Cpu => return Ok("cpu".into()),
+        Backend::Vulkan => "Vulkan",
+        Backend::Cuda => "CUDA",
+    };
+    match gpu_device {
+        None => bail!("requested {requested:?} but whisper.cpp fell back to CPU"),
+        Some(dev) if dev.starts_with(expected_prefix) => {
+            Ok(format!("{}:{dev}", expected_prefix.to_lowercase()))
+        }
+        Some(dev) => bail!("requested {requested:?} but whisper.cpp initialized {dev}"),
+    }
+}
+
+/// Captures native whisper.cpp/ggml log lines (routed through the `log` crate by
+/// whisper-rs's `log_backend`) so the init log can be inspected after loading.
+mod capture {
+    use std::sync::{Mutex, Once};
+
+    static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static INSTALL: Once = Once::new();
+
+    struct Capture;
+
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            let line = record.args().to_string();
+            if std::env::var_os("AURAL_BENCH_VERBOSE").is_some() {
+                eprintln!("{line}");
+            }
+            if let Ok(mut v) = LINES.lock() {
+                v.push(line);
+            }
+        }
+        fn flush(&self) {}
+    }
+
+    pub fn install() {
+        INSTALL.call_once(|| {
+            if log::set_boxed_logger(Box::new(Capture)).is_ok() {
+                log::set_max_level(log::LevelFilter::Trace);
+            }
+            whisper_rs::install_logging_hooks();
+        });
+    }
+
+    pub fn take() -> Vec<String> {
+        LINES
+            .lock()
+            .map(|mut v| std::mem::take(&mut *v))
+            .unwrap_or_default()
+    }
 }
 
 pub fn load(model: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Transcriber>> {
@@ -36,11 +117,13 @@ pub fn load(model: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Tr
             format!("{backend:?}").to_lowercase()
         );
     }
-    whisper_rs::install_logging_hooks();
+    capture::install();
+    capture::take();
     let mut params = WhisperContextParameters::default();
     params.use_gpu(backend != Backend::Cpu);
     let ctx = WhisperContext::new_with_params(model, params)
         .with_context(|| format!("loading whisper model {}", model.display()))?;
+    let backend_used = verify_backend(backend, gpu_device_from_log(&capture::take()).as_deref())?;
     let state = ctx.create_state().context("creating whisper state")?;
     let name = model
         .file_stem()
@@ -50,12 +133,21 @@ pub fn load(model: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Tr
         state,
         threads,
         label: name,
+        backend_used,
     }))
 }
 
 impl Transcriber for Whisper {
     fn label(&self) -> String {
         self.label.clone()
+    }
+
+    fn threads(&self) -> Option<usize> {
+        Some(self.threads)
+    }
+
+    fn backend_used(&self) -> String {
+        self.backend_used.clone()
     }
 
     fn transcribe(&mut self, pcm16k: &[f32]) -> Result<String> {
@@ -96,6 +188,51 @@ mod tests {
             .err()
             .unwrap();
         assert!(err.to_string().contains("not compiled"), "{err}");
+    }
+
+    fn lines(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn gpu_device_read_from_whisper_init_log() {
+        let log = lines(&[
+            "whisper_backend_init_gpu: found GPU device 0: Vulkan0 (type: 1, cnt: 0)",
+            "whisper_backend_init_gpu: using Vulkan0 backend",
+        ]);
+        assert_eq!(gpu_device_from_log(&log).as_deref(), Some("Vulkan0"));
+    }
+
+    #[test]
+    fn no_gpu_or_failed_init_means_cpu() {
+        assert_eq!(
+            gpu_device_from_log(&lines(&["whisper_backend_init_gpu: no GPU found"])),
+            None
+        );
+        let failed = lines(&[
+            "whisper_backend_init_gpu: using CUDA0 backend",
+            "whisper_backend_init_gpu: failed to initialize CUDA0 backend",
+        ]);
+        assert_eq!(gpu_device_from_log(&failed), None);
+        // ACCEL backends (e.g. BLAS) are logged by whisper_backend_init, not the GPU init.
+        let accel = lines(&["whisper_backend_init: using BLAS backend"]);
+        assert_eq!(gpu_device_from_log(&accel), None);
+    }
+
+    #[test]
+    fn requested_gpu_that_fell_back_to_cpu_is_an_error() {
+        let err = verify_backend(Backend::Vulkan, None).unwrap_err();
+        assert!(err.to_string().contains("fell back to CPU"), "{err}");
+        assert!(verify_backend(Backend::Cuda, Some("Vulkan0")).is_err());
+        assert_eq!(
+            verify_backend(Backend::Cuda, Some("CUDA0")).unwrap(),
+            "cuda:CUDA0"
+        );
+        assert_eq!(
+            verify_backend(Backend::Vulkan, Some("Vulkan0")).unwrap(),
+            "vulkan:Vulkan0"
+        );
+        assert_eq!(verify_backend(Backend::Cpu, None).unwrap(), "cpu");
     }
 
     #[test]
