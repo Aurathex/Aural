@@ -16,11 +16,20 @@ use tauri::{Emitter, Manager};
 pub struct AppIo {
     pub app: Arc<App>,
     capture: Option<CaptureHandle>,
+    /// The last pill state shown, to pick the start/stop sound.
+    last_pill: PillState,
+    /// The start sound played for the current recording, so it gets muted out.
+    start_cue_played: bool,
 }
 
 impl AppIo {
     pub fn new(app: Arc<App>) -> Self {
-        Self { app, capture: None }
+        Self {
+            app,
+            capture: None,
+            last_pill: PillState::Hidden,
+            start_cue_played: false,
+        }
     }
 
     fn open(&self, device: Option<&str>) -> Result<CaptureHandle, CaptureError> {
@@ -62,7 +71,11 @@ impl DictationIo for AppIo {
     }
 
     fn stop_capture(&mut self) -> Vec<f32> {
-        self.capture.take().map(|c| c.stop()).unwrap_or_default()
+        let mut pcm = self.capture.take().map(|c| c.stop()).unwrap_or_default();
+        if std::mem::take(&mut self.start_cue_played) {
+            crate::sounds::mute_start_cue(&mut pcm);
+        }
+        pcm
     }
 
     fn transcribe(&mut self, pcm: &[f32]) -> Result<String, ErrorCode> {
@@ -98,6 +111,15 @@ impl DictationIo for AppIo {
         let Some(window) = self.app.handle.get_webview_window("pill") else {
             return;
         };
+        if let Some(cue) = crate::sounds::cue_for(&self.last_pill, &view.state) {
+            if self.app.settings().ui.sounds {
+                crate::sounds::play(cue);
+                if cue == crate::sounds::Cue::Start {
+                    self.start_cue_played = true;
+                }
+            }
+        }
+        self.last_pill = view.state;
         let hidden = view.state == PillState::Hidden;
         self.app.pill_hidden.store(hidden, Ordering::SeqCst);
         if !hidden {
@@ -105,10 +127,11 @@ impl DictationIo for AppIo {
         }
         let _ = self.app.handle.emit_to("pill", "pill", &view);
         if hidden {
-            // Let the fade-out play, then hide unless a new session started meanwhile.
+            // Let the exit animation (200 ms, Pill.svelte) play, then hide unless a new
+            // session started meanwhile.
             let app = self.app.clone();
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(240));
+                std::thread::sleep(Duration::from_millis(280));
                 if app.pill_hidden.load(Ordering::SeqCst) {
                     if let Some(w) = app.handle.get_webview_window("pill") {
                         crate::pill::hide(&w);

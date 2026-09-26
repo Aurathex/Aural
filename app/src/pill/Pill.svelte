@@ -4,6 +4,7 @@
   import Bars from "../lib/Bars.svelte";
   import { on } from "../lib/api";
   import type { PillView } from "../lib/types";
+  import { nextDisplay, type PillDisplay } from "../lib/pillExit";
 
   // `preview` lets the settings window show the same pill (microphone test).
   let {
@@ -11,24 +12,25 @@
     levels: previewLevels = null,
   }: { preview?: PillView | null; levels?: number[] | null } = $props();
 
-  let view = $state<PillView>({ state: { state: "hidden" }, label: null });
+  let display = $state<PillDisplay>({ content: { state: { state: "hidden" }, label: null }, leaving: false });
   let levels = $state<number[]>([]);
 
-  let current = $derived(preview ?? view);
+  let current = $derived(preview ?? display.content);
   let kind = $derived(current.state.state);
+  let leaving = $derived(!preview && display.leaving);
   let bands = $derived(previewLevels ?? levels);
 
   onMount(() => {
     if (preview) return;
     const offs = [
-      on<PillView>("pill", (v) => (view = v)),
+      on<PillView>("pill", (v) => (display = nextDisplay(display, v))),
       on<number[]>("levels", (l) => (levels = l)),
     ];
     return () => offs.forEach((p) => p.then((off) => off()));
   });
 </script>
 
-<div class="pill {kind}" role="status" aria-live="polite">
+<div class="pill {kind}" class:leaving role="status" aria-live="polite">
   <span class="mark"><Logo size={18} weight={6} /></span>
   <div class="field">
     {#if kind === "error"}
@@ -66,6 +68,13 @@
   .pill.hidden {
     opacity: 0;
     transform: translateY(4px) scale(0.96);
+  }
+  /* Exit: a short ease-in fade that drifts down and shrinks slightly. The window is
+     hidden 280 ms later (io.rs), after this finishes. */
+  .pill.leaving {
+    opacity: 0;
+    transform: translateY(6px) scale(0.94);
+    transition: opacity 200ms cubic-bezier(0.4, 0, 1, 1), transform 200ms cubic-bezier(0.4, 0, 1, 1);
   }
   .mark { display: flex; flex: none; }
   .field {
@@ -136,5 +145,6 @@
   @media (prefers-reduced-motion: reduce) {
     .sweep { animation: none; opacity: 0.4; }
     .line, .error { animation: none; }
+    .pill.leaving { transform: none; }
   }
 </style>

@@ -9,7 +9,7 @@ export interface Settings {
   audio: { device: string | null };
   stt: { active_model: string | null };
   startup: { launch_at_login: boolean };
-  ui: { pill_position: PillPosition };
+  ui: { pill_position: PillPosition; sounds: boolean };
 }
 
 export type ModelState =

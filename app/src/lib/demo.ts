@@ -16,7 +16,7 @@ const settings: Settings = {
   audio: { device: null },
   stt: { active_model: null },
   startup: { launch_at_login: false },
-  ui: { pill_position: "bottom" },
+  ui: { pill_position: "bottom", sounds: true },
 };
 
 const state: AppState = {

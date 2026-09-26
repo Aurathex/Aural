@@ -88,12 +88,15 @@ pub enum PillPosition {
 #[serde(default)]
 pub struct UiSettings {
     pub pill_position: PillPosition,
+    /// Short start/stop listening sounds.
+    pub sounds: bool,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
         Self {
             pill_position: PillPosition::Bottom,
+            sounds: true,
         }
     }
 }
@@ -163,6 +166,15 @@ mod tests {
         assert_eq!(s.audio.device, None);
         assert_eq!(s.stt.active_model, None);
         assert_eq!(s.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn listening_sounds_are_on_by_default_including_for_older_settings_files() {
+        assert!(Settings::default().ui.sounds);
+        let old: Settings =
+            serde_json::from_str(r#"{"schema_version":1,"ui":{"pill_position":"top"}}"#).unwrap();
+        assert!(old.ui.sounds);
+        assert_eq!(old.ui.pill_position, PillPosition::Top);
     }
 
     #[test]

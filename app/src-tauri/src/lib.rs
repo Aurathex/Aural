@@ -6,6 +6,7 @@ pub mod engine;
 pub mod io;
 pub mod pill;
 pub mod shell;
+pub mod sounds;
 pub mod state;
 pub mod tray;
 

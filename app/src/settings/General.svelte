@@ -71,7 +71,9 @@
   const setAutostart = () =>
     save({ ...app.settings, startup: { launch_at_login: !app.settings.startup.launch_at_login } });
   const setPosition = (pill_position: Settings["ui"]["pill_position"]) =>
-    save({ ...app.settings, ui: { pill_position } });
+    save({ ...app.settings, ui: { ...app.settings.ui, pill_position } });
+  const setSounds = () =>
+    save({ ...app.settings, ui: { ...app.settings.ui, sounds: !app.settings.ui.sounds } });
 
   let keys = $derived(app.hotkey_display.split(" + "));
 </script>
@@ -164,6 +166,21 @@
         <div class="control seg" role="group" aria-label="Pill position">
           <button aria-pressed={app.settings.ui.pill_position === "bottom"} onclick={() => setPosition("bottom")}>Bottom</button>
           <button aria-pressed={app.settings.ui.pill_position === "top"} onclick={() => setPosition("top")}>Top</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="text">
+          <div class="title">Sounds</div>
+          <div class="desc">A short soft tone when listening starts and stops.</div>
+        </div>
+        <div class="control">
+          <button
+            class="switch"
+            role="switch"
+            aria-checked={app.settings.ui.sounds}
+            aria-label="Sounds"
+            onclick={setSounds}
+          ></button>
         </div>
       </div>
     </div>
