@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Aural — local dictation for Windows</title>
+<style>
+  :root { --ink: #0B0B0B; --paper: #FFFFFF; --mute: #A3A3A3; --line: #E5E5E5; }
+  body { font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Aural</h1>
+  <p>Hold Ctrl + Win, speak, release. Your words appear in whatever app has focus — transcribed on this PC, never uploaded.</p>
+  <p>Brand idea: speed, clarity and flowing water. Black, white and neutral grey only.</p>
+</header>
+
+<section id="pill">
+  <h2>The listening pill</h2>
+  <p>A 176 × 36 px capsule that floats above the taskbar while you dictate. Logo on the left, twelve level bars that move with your real voice.</p>
+  <ol>
+    <li><strong>Listening</strong> — bars rise and fall with the microphone, from 90 Hz to 4 kHz.</li>
+    <li><strong>Processing</strong> — bars settle to dots; a soft highlight sweeps across them.</li>
+    <li><strong>Success</strong> — the dots join into one line, then the pill fades away.</li>
+    <li><strong>Error</strong> — a short grey label: “Mic blocked”, “No model”, “Copied — Ctrl+V”.</li>
+    <li><strong>Hidden</strong> — nothing on screen when you are not dictating.</li>
+  </ol>
+</section>
+
+<section id="settings">
+  <h2>Settings</h2>
+  <h3>General</h3>
+  <ul>
+    <li>Hotkey: Ctrl + Win (hold to talk)</li>
+    <li>Mode: Push to talk or Toggle</li>
+    <li>Start Aural with Windows</li>
+  </ul>
+  <h3>Microphone</h3>
+  <ul>
+    <li>Input: Windows default microphone</li>
+    <li>Test: speak to see the live pill</li>
+  </ul>
+  <h3>Models</h3>
+  <table>
+    <tr><th>Model</th><th>Size</th><th>Accuracy</th><th>Status</th></tr>
+    <tr><td>Parakeet TDT 0.6B v2</td><td>661 MB</td><td>Best</td><td>Recommended for this PC</td></tr>
+    <tr><td>Whisper small.en</td><td>264 MB</td><td>Good</td><td>Available</td></tr>
+    <tr><td>Whisper base.en</td><td>82 MB</td><td>Basic</td><td>Available</td></tr>
+  </table>
+  <h3>About &amp; privacy</h3>
+  <ul>
+    <li>Speech never leaves this PC. No account. No telemetry.</li>
+    <li>Network is used only when you download a model.</li>
+    <li>Delete Aural — type YES, DELETE to confirm.</li>
+  </ul>
+</section>
+</body>
+</html>

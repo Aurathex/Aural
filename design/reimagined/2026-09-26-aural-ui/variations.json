@@ -1,0 +1,45 @@
+{
+  "source": "aural-ui-source.html",
+  "title": "Aural — local dictation for Windows",
+  "seed": 1071685301,
+  "count": 3,
+  "lock": null,
+  "variations": [
+    {
+      "rank": 1,
+      "token": "gradient",
+      "file": "01-gradient.html",
+      "seed": -590254007,
+      "voice": "highContrast",
+      "fit": 43,
+      "quality": 136,
+      "fidelity": 100,
+      "bytes": 19689,
+      "failedChecks": []
+    },
+    {
+      "rank": 2,
+      "token": "infographic",
+      "file": "02-infographic.html",
+      "seed": -16610835,
+      "voice": "highContrast",
+      "fit": 17,
+      "quality": 136,
+      "fidelity": 100,
+      "bytes": 19095,
+      "failedChecks": []
+    },
+    {
+      "rank": 3,
+      "token": "photography",
+      "file": "03-photography.html",
+      "seed": 1448332075,
+      "voice": "highContrast",
+      "fit": 26,
+      "quality": 136,
+      "fidelity": 100,
+      "bytes": 20459,
+      "failedChecks": []
+    }
+  ]
+}
