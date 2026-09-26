@@ -16,6 +16,15 @@ Developer tool that measures local STT engines on a WAV corpus: word error rate,
   ```
   `--features vulkan` also needs the Vulkan SDK; `--features cuda` needs the CUDA Toolkit 12.x.
 
+  CUDA 12.9 with **VS 2026 Build Tools**: CUDA 12.9 has no MSBuild integration for VS 2026,
+  and its front end crashes on the MSVC 14.51 headers. Add the MSVC v14.44 (VS 2022) toolset
+  with the Visual Studio Installer, then build with Ninja from that toolset's environment:
+  ```powershell
+  cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" -vcvars_ver=14.44 && set"   # load into the shell
+  $env:CMAKE_GENERATOR = 'Ninja'            # ninja ships with the Build Tools CMake component
+  $env:CMAKE_CUDA_ARCHITECTURES = '89'      # RTX 40 series; omit to build every architecture
+  ```
+
 `onnx` and `ggml` cannot be enabled together (ONNX Runtime and whisper.cpp must not link
 into one binary), so build each engine separately.
 
