@@ -1,0 +1,59 @@
+/* Aural design tokens: black, white and neutral greys. The only non-grey is the
+   destructive red, used solely for Delete Aural. Follows the Windows light/dark mode. */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --side: #f5f5f5;
+  --ink: #0b0b0b;
+  --ink-2: #5c5c5c;
+  --ink-3: #8a8a8a;
+  --line: #e7e7e7;
+  --field: #f3f3f3;
+  --invert-bg: #0b0b0b;
+  --invert-ink: #ffffff;
+  --track: #d6d6d6;
+  --danger: #b42318;
+  --danger-ink: #ffffff;
+  --focus: #0b0b0b;
+  --radius: 8px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111111;
+    --side: #171717;
+    --ink: #f4f4f4;
+    --ink-2: #a8a8a8;
+    --ink-3: #777777;
+    --line: #262626;
+    --field: #1d1d1d;
+    --invert-bg: #f4f4f4;
+    --invert-ink: #0b0b0b;
+    --track: #3a3a3a;
+    --danger: #e5484d;
+    --danger-ink: #ffffff;
+    --focus: #f4f4f4;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+::selection { background: var(--invert-bg); color: var(--invert-ink); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+button, select, input { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
