@@ -1,0 +1,7 @@
+[env]
+# whisper-rs-sys builds whisper.cpp through cmake-rs, which on MSVC overrides
+# CMAKE_<LANG>_FLAGS_RELEASE without /O2, so whisper.cpp compiled unoptimized (~6x
+# slower). cl.exe reads the CL environment variable on every invocation, so this forces
+# optimization regardless of the generated CMake flags. Guarded by the ignored test
+# `ggml_whisper::tests::whisper_cpp_is_built_optimized`.
+CL = "/O2"
