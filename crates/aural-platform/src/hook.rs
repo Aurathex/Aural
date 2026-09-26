@@ -5,19 +5,24 @@
 
 use crate::chord::{Chord, ChordMatcher, HotkeyEvent};
 use anyhow::{bail, Result};
+use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
-use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+use windows::core::w;
+use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
     KEYEVENTF_KEYUP, VIRTUAL_KEY,
 };
+use windows::Win32::UI::Input::{RegisterRawInputDevices, RAWINPUTDEVICE, RIDEV_INPUTSINK};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
-    TranslateMessage, UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG,
-    WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
+    CallNextHookEx, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
+    PostThreadMessageW, RegisterClassW, SetTimer, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG,
+    WH_KEYBOARD_LL, WINDOW_EX_STYLE, WINDOW_STYLE, WM_INPUT, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
+    WM_TIMER, WNDCLASSW,
 };
 
 struct HookState {
@@ -35,6 +40,107 @@ fn state() -> &'static Mutex<Option<HookState>> {
 }
 
 const MASK_VK: u16 = 0xE8;
+
+/// The installed hook handle, so the watchdog (and tests) can replace it.
+static CURRENT_HOOK: AtomicIsize = AtomicIsize::new(0);
+/// Keyboard events the hook callback has seen.
+static HOOK_KEYS: AtomicU64 = AtomicU64::new(0);
+/// Keyboard events Raw Input has seen; Windows delivers these even when it has
+/// silently removed the hook.
+static RAW_KEYS: AtomicU64 = AtomicU64::new(0);
+static REINSTALLS: AtomicU64 = AtomicU64::new(0);
+
+/// How many times the watchdog has had to reinstall the hook in this process.
+pub fn reinstalls() -> u64 {
+    REINSTALLS.load(Ordering::SeqCst)
+}
+
+/// Over one watchdog interval: keys arrived, and the hook saw none of them.
+fn hook_looks_dead(raw_keys: u64, hook_keys: u64) -> bool {
+    raw_keys > 0 && hook_keys == 0
+}
+
+const WATCHDOG_MS: u32 = 1000;
+/// At most one reinstall per gap, so a lasting mismatch (for example keys that reach
+/// Raw Input but not the hook while an elevated window is in front) can't churn.
+const REINSTALL_GAP: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Install a fresh hook, then remove the old one (a no-op if Windows already did), so
+/// there is no moment without a hook. Runs on the hook thread.
+unsafe fn reinstall(module: Option<HMODULE>) {
+    // SAFETY: same call as the first install, on the same thread.
+    if let Ok(new) =
+        unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module.map(|m| m.into()), 0) }
+    {
+        let old = CURRENT_HOOK.swap(new.0 as isize, Ordering::SeqCst);
+        // SAFETY: old is the hook this thread installed earlier.
+        let _ = unsafe { UnhookWindowsHookEx(HHOOK(old as *mut std::ffi::c_void)) };
+        REINSTALLS.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+unsafe extern "system" fn raw_input_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if msg == WM_INPUT {
+        RAW_KEYS.fetch_add(1, Ordering::Relaxed);
+    }
+    // SAFETY: default handling (WM_INPUT needs it to free the input).
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+/// A message-only window that receives keyboard Raw Input even in the background.
+/// Runs on the hook thread; returns None if Windows refuses.
+unsafe fn watch_raw_keyboard(module: Option<HMODULE>) -> Option<HWND> {
+    let class = w!("AuralHotkeyWatchdog");
+    let wc = WNDCLASSW {
+        lpfnWndProc: Some(raw_input_proc),
+        hInstance: module.map(|m| m.into()).unwrap_or_default(),
+        lpszClassName: class,
+        ..Default::default()
+    };
+    // SAFETY: valid class description; registering twice (a second hook) just fails.
+    unsafe { RegisterClassW(&wc) };
+    // SAFETY: message-only window of the class above.
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            class,
+            w!(""),
+            WINDOW_STYLE(0),
+            0,
+            0,
+            0,
+            0,
+            Some(HWND_MESSAGE),
+            None,
+            module.map(|m| m.into()),
+            None,
+        )
+    }
+    .ok()?;
+    let device = RAWINPUTDEVICE {
+        usUsagePage: 0x01, // generic desktop
+        usUsage: 0x06,     // keyboard
+        dwFlags: RIDEV_INPUTSINK,
+        hwndTarget: hwnd,
+    };
+    // SAFETY: one initialised device description.
+    unsafe { RegisterRawInputDevices(&[device], std::mem::size_of::<RAWINPUTDEVICE>() as u32) }
+        .ok()?;
+    Some(hwnd)
+}
+
+/// Test helper: remove the hook the way Windows does, without telling the thread.
+#[cfg(test)]
+fn drop_hook_like_windows() -> bool {
+    let h = CURRENT_HOOK.load(Ordering::SeqCst);
+    // SAFETY: h is the hook this process installed.
+    unsafe { UnhookWindowsHookEx(HHOOK(h as *mut std::ffi::c_void)) }.is_ok()
+}
 
 fn send_mask() {
     let k = |up: bool| INPUT {
@@ -66,6 +172,7 @@ fn physically_down(vk: u16) -> bool {
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
+        HOOK_KEYS.fetch_add(1, Ordering::Relaxed);
         // SAFETY: for WH_KEYBOARD_LL with HC_ACTION, lparam points to KBDLLHOOKSTRUCT.
         let kb = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
         let down = matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
@@ -179,13 +286,37 @@ pub fn spawn_with(
                         return;
                     }
                 };
+                CURRENT_HOOK.store(hook.0 as isize, Ordering::SeqCst);
+                // Without Raw Input the watchdog has nothing to compare against and
+                // stays idle; the hook itself still works.
+                let _raw_window = watch_raw_keyboard(module);
+                let _ = SetTimer(None, 0, WATCHDOG_MS, None);
                 let _ = ready_tx.send(Ok(GetCurrentThreadId()));
+                let mut last = (
+                    RAW_KEYS.load(Ordering::Relaxed),
+                    HOOK_KEYS.load(Ordering::Relaxed),
+                );
+                let mut last_reinstall: Option<std::time::Instant> = None;
                 let mut msg = MSG::default();
                 while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                    if msg.message == WM_TIMER && msg.hwnd.is_invalid() {
+                        let now = (
+                            RAW_KEYS.load(Ordering::Relaxed),
+                            HOOK_KEYS.load(Ordering::Relaxed),
+                        );
+                        let rested = last_reinstall.is_none_or(|t| t.elapsed() >= REINSTALL_GAP);
+                        if hook_looks_dead(now.0 - last.0, now.1 - last.1) && rested {
+                            reinstall(module);
+                            last_reinstall = Some(std::time::Instant::now());
+                        }
+                        last = now;
+                        continue;
+                    }
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
-                let _ = UnhookWindowsHookEx(hook);
+                let current = CURRENT_HOOK.swap(0, Ordering::SeqCst);
+                let _ = UnhookWindowsHookEx(HHOOK(current as *mut std::ffi::c_void));
             }
         })?;
     match ready_rx.recv() {
@@ -232,6 +363,62 @@ mod tests {
             sent, 1,
             "Windows refused synthetic input: this test needs an unlocked, interactive desktop"
         );
+    }
+
+    #[test]
+    fn hook_counts_as_dead_only_when_keys_arrive_without_it() {
+        assert!(hook_looks_dead(3, 0));
+        assert!(!hook_looks_dead(0, 0), "no typing: nothing to judge");
+        assert!(!hook_looks_dead(3, 3));
+        assert!(
+            !hook_looks_dead(3, 1),
+            "a partial count is a timing edge, not a dead hook"
+        );
+    }
+
+    /// Windows removes a hook that is too slow without telling the app. Simulate that
+    /// by unhooking behind the thread's back, type something, and expect the chord to
+    /// work again once the watchdog notices. Run with `-- --ignored`.
+    #[test]
+    #[ignore]
+    fn hook_is_reinstalled_after_windows_drops_it() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let chord = Chord::parse(&["F13".into()]).unwrap();
+        let handle = spawn_with(chord, tx, true).unwrap();
+        let before = reinstalls();
+        let (raw0, hook0) = (
+            RAW_KEYS.load(Ordering::SeqCst),
+            HOOK_KEYS.load(Ordering::SeqCst),
+        );
+        assert!(drop_hook_like_windows(), "unhooking failed");
+        // Keys the dead hook never sees (F14 is unused, like F13).
+        for _ in 0..3 {
+            press(0x7D, false);
+            press(0x7D, true);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while reinstalls() == before && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(
+            reinstalls() > before,
+            "the watchdog never reinstalled the hook (raw keys +{}, hook keys +{})",
+            RAW_KEYS.load(Ordering::SeqCst) - raw0,
+            HOOK_KEYS.load(Ordering::SeqCst) - hook0
+        );
+        while rx.try_recv().is_ok() {}
+        press(0x7C, false);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            HotkeyEvent::Down
+        );
+        press(0x7C, true);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            HotkeyEvent::Up
+        );
+        drop(handle);
     }
 
     /// Drives the real Windows hook with synthetic F13 presses (F13 exists on almost
