@@ -20,7 +20,8 @@ Developer tool that measures local STT engines on a WAV corpus: word error rate,
 into one binary), so build each engine separately.
 
 The repo's `.cargo/config.toml` sets `CL=/O2`. Without it whisper.cpp compiles unoptimized
-on MSVC and runs about 6x slower.
+on MSVC and runs about 6x slower. If `CL` is already set in your shell, that value wins,
+so unset it before building.
 
 ## Corpus
 
@@ -52,6 +53,12 @@ or Task Manager during GPU runs.
 Notes:
 
 - `--threads` applies to Whisper only. transcribe-rs sizes Parakeet's ONNX Runtime thread
-  pool itself, so the `threads` column is not meaningful for Parakeet rows.
+  pool itself (about one thread per physical core), so Parakeet rows show `engine-default`.
+- `backend` is the backend whisper.cpp actually initialized. A run that asked for Vulkan
+  or CUDA but fell back to the CPU fails instead of reporting CPU numbers. Set
+  `AURAL_BENCH_VERBOSE=1` to see the native init log.
+- `engine RAM MB` is peak working set minus the working set after the corpus is decoded,
+  so corpus audio isn't counted as model memory. `load ms` depends on whether the model
+  file is already in the OS file cache; run twice and report the warm number.
 - WER normalization lowercases and strips punctuation but does not normalize numbers
   ("ten" vs "10"). Both engines are scored the same way.
