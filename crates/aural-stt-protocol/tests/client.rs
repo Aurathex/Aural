@@ -86,7 +86,7 @@ fn kill_switch_ends_a_hung_transcription_at_once_without_restarting() {
     });
     let t0 = std::time::Instant::now();
     let err = c
-        .transcribe(&vec![0.0; 10], Duration::from_secs(30))
+        .transcribe(&[0.0; 10], Duration::from_secs(30))
         .unwrap_err();
     assert!(matches!(err, ClientError::Stopped), "{err}");
     assert!(
@@ -103,7 +103,7 @@ fn a_stopped_client_refuses_further_work() {
     let mut c = loaded(&[], dir.path());
     c.killer().kill();
     assert!(matches!(
-        c.transcribe(&vec![0.0; 10], Duration::from_secs(5)),
+        c.transcribe(&[0.0; 10], Duration::from_secs(5)),
         Err(ClientError::Stopped)
     ));
 }
