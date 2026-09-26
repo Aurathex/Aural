@@ -13,7 +13,14 @@ pub fn open(target: &str) {
         let verb = HSTRING::from("open");
         // SAFETY: valid NUL-terminated wide strings for the duration of the call.
         unsafe {
-            ShellExecuteW(None, &verb, &target, PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+            ShellExecuteW(
+                None,
+                &verb,
+                &target,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            );
         }
     }
 }

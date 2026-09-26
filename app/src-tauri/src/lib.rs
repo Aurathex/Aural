@@ -33,7 +33,9 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
     let chord = match Chord::parse(&s.hotkey.keys) {
         Ok(c) => c,
         Err(e) => {
-            notice = Some(format!("Your hotkey could not be read ({e}); Ctrl + Win restored."));
+            notice = Some(format!(
+                "Your hotkey could not be read ({e}); Ctrl + Win restored."
+            ));
             s.hotkey.keys = settings::Settings::default().hotkey.keys;
             Chord::parse(&s.hotkey.keys)?
         }
@@ -100,7 +102,10 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         .spawn(move || {
             while let Ok(event) = hk_rx.recv() {
                 let t_ms = epoch.elapsed().as_millis() as u64;
-                if tx.send(Control::Input(Input::Hotkey { event, t_ms })).is_err() {
+                if tx
+                    .send(Control::Input(Input::Hotkey { event, t_ms }))
+                    .is_err()
+                {
                     break;
                 }
             }

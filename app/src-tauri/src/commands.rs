@@ -166,7 +166,10 @@ pub fn cancel_download(app: State<'_, Arc<App>>, id: String) {
 
 #[tauri::command]
 pub fn remove_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
-    let entry = app.catalog.get(&id).ok_or_else(|| format!("unknown model {id}"))?;
+    let entry = app
+        .catalog
+        .get(&id)
+        .ok_or_else(|| format!("unknown model {id}"))?;
     let active = app.settings().stt.active_model;
     app.store.remove(entry, active.as_deref()).map_err(err)?;
     Ok(app.snapshot())
@@ -174,7 +177,10 @@ pub fn remove_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
 
 #[tauri::command]
 pub fn use_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
-    let entry = app.catalog.get(&id).ok_or_else(|| format!("unknown model {id}"))?;
+    let entry = app
+        .catalog
+        .get(&id)
+        .ok_or_else(|| format!("unknown model {id}"))?;
     if !app.store.is_installed(entry) {
         return Err(format!("{} is not downloaded yet", entry.name));
     }

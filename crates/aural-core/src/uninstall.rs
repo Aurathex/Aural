@@ -29,6 +29,8 @@ pub struct DeletionPlan {
     pub run_uninstaller: Option<Command>,
     /// Only directories under these roots may ever be deleted.
     allowed_roots: Vec<PathBuf>,
+    /// Folder of the running program; never deleted from here (the uninstaller does).
+    install_dir: Option<PathBuf>,
 }
 
 /// `install_dir` is the folder of the running executable; the NSIS installer puts
@@ -46,6 +48,7 @@ pub fn plan(paths: &AppPaths, install_dir: Option<&Path>) -> DeletionPlan {
         remove_autostart: true,
         run_uninstaller,
         allowed_roots: vec![paths.data_dir.clone(), paths.config_dir.clone()],
+        install_dir: install_dir.map(Path::to_path_buf),
     }
 }
 
@@ -60,6 +63,16 @@ pub fn remove_dirs(plan: &DeletionPlan) -> Result<RemovalReport> {
     for dir in &plan.remove_dirs {
         if !plan.allowed_roots.iter().any(|r| r == dir) {
             bail!("refusing to delete {}: not an Aural folder", dir.display());
+        }
+        if plan
+            .install_dir
+            .as_ref()
+            .is_some_and(|i| i.starts_with(dir))
+        {
+            bail!(
+                "refusing to delete {}: it contains the installed program",
+                dir.display()
+            );
         }
     }
     let mut report = RemovalReport::default();
@@ -142,6 +155,20 @@ mod tests {
         let report = remove_dirs(&p).unwrap();
         assert!(!paths.data_dir.exists());
         assert_eq!(report.removed, vec![paths.data_dir.clone()]);
+    }
+
+    #[test]
+    fn refuses_when_a_data_folder_contains_the_installed_program() {
+        // e.g. data configured to live in the install folder: deleting it would remove
+        // the uninstaller before it runs.
+        let root = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(root.path());
+        let install = paths.data_dir.join("app");
+        std::fs::create_dir_all(&install).unwrap();
+        std::fs::write(install.join("uninstall.exe"), b"").unwrap();
+        let p = plan(&paths, Some(&install));
+        assert!(remove_dirs(&p).is_err());
+        assert!(install.join("uninstall.exe").exists());
     }
 
     #[test]

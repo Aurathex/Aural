@@ -25,9 +25,13 @@ pub fn build(app: &Arc<App>, hotkey: &str) -> tauri::Result<()> {
 
     let state = app.clone();
     TrayIconBuilder::with_id("aural")
-        .icon(h.default_window_icon().cloned().ok_or(tauri::Error::InvalidIcon(
-            std::io::Error::other("missing app icon"),
-        ))?)
+        .icon(
+            h.default_window_icon()
+                .cloned()
+                .ok_or(tauri::Error::InvalidIcon(std::io::Error::other(
+                    "missing app icon",
+                )))?,
+        )
         .tooltip(format!("Aural — hold {hotkey} to dictate"))
         .menu(&menu)
         .show_menu_on_left_click(false)

@@ -14,9 +14,18 @@ use std::time::Duration;
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum EngineStatus {
     NoModel,
-    Loading { model: String },
-    Ready { model: String, label: String, backend: String },
-    Error { model: String, message: String },
+    Loading {
+        model: String,
+    },
+    Ready {
+        model: String,
+        label: String,
+        backend: String,
+    },
+    Error {
+        model: String,
+        message: String,
+    },
 }
 
 pub struct EngineHost {
@@ -52,7 +61,10 @@ fn threads() -> usize {
 
 impl EngineHost {
     pub fn status(&self) -> EngineStatus {
-        self.status.lock().map(|s| s.clone()).unwrap_or(EngineStatus::NoModel)
+        self.status
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or(EngineStatus::NoModel)
     }
 
     fn set_status(&self, s: EngineStatus) {

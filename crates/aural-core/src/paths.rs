@@ -4,8 +4,13 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-/// `data_dir` (%LOCALAPPDATA%\Aural): models, runtimes, logs — machine-local, large.
-/// `config_dir` (%APPDATA%\Aural): settings.json — small, roams with the profile.
+/// Folder name for both roots: the app identifier. Not "Aural": the per-user installer
+/// puts the program itself in %LOCALAPPDATA%\Aural, and data must never share a folder
+/// with the install (Delete Aural and the uninstaller each remove one of them).
+pub const DIR_NAME: &str = "com.aurathex.aural";
+
+/// `data_dir` (%LOCALAPPDATA%\com.aurathex.aural): models and logs — machine-local, large.
+/// `config_dir` (%APPDATA%\com.aurathex.aural): settings.json — small, roams with the profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppPaths {
     pub data_dir: PathBuf,
@@ -34,8 +39,8 @@ impl AppPaths {
         let local = get("LOCALAPPDATA").context("LOCALAPPDATA is not set")?;
         let roaming = get("APPDATA").context("APPDATA is not set")?;
         Ok(Self {
-            data_dir: Path::new(&local).join("Aural"),
-            config_dir: Path::new(&roaming).join("Aural"),
+            data_dir: Path::new(&local).join(DIR_NAME),
+            config_dir: Path::new(&roaming).join(DIR_NAME),
         })
     }
 
@@ -71,15 +76,22 @@ mod tests {
     }
 
     #[test]
-    fn default_roots_are_per_user_aural_folders() {
+    fn default_roots_are_the_per_user_identifier_folders() {
         let p = AppPaths::from_env_with(|k| match k {
             "LOCALAPPDATA" => Some("C:/Users/u/AppData/Local".into()),
             "APPDATA" => Some("C:/Users/u/AppData/Roaming".into()),
             _ => None,
         })
         .unwrap();
-        assert_eq!(p.data_dir, Path::new("C:/Users/u/AppData/Local/Aural"));
-        assert_eq!(p.config_dir, Path::new("C:/Users/u/AppData/Roaming/Aural"));
+        // Not %LOCALAPPDATA%\Aural: that is where the per-user installer puts the app.
+        assert_eq!(
+            p.data_dir,
+            Path::new("C:/Users/u/AppData/Local/com.aurathex.aural")
+        );
+        assert_eq!(
+            p.config_dir,
+            Path::new("C:/Users/u/AppData/Roaming/com.aurathex.aural")
+        );
     }
 
     #[test]

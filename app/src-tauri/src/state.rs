@@ -111,7 +111,9 @@ impl App {
     }
 
     pub fn broadcast(&self) {
-        let _ = self.handle.emit_to("main", "state-changed", self.snapshot());
+        let _ = self
+            .handle
+            .emit_to("main", "state-changed", self.snapshot());
     }
 
     pub fn send(&self, c: Control) {
