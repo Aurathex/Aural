@@ -7,15 +7,17 @@
 pub fn normalize(s: &str) -> Vec<String> {
     s.to_lowercase()
         .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '\'' {
-                c
-            } else {
-                ' '
-            }
+        .map(|c| match c {
+            // Typographic apostrophes/quotes (Word, Outlook, phones) count as '.
+            '\u{2018}' | '\u{2019}' | '\u{02BC}' => '\'',
+            c if c.is_alphanumeric() || c == '\'' => c,
+            _ => ' ',
         })
         .collect::<String>()
         .split_whitespace()
+        // Apostrophes at word edges are quote marks, not contractions.
+        .map(|w| w.trim_matches('\''))
+        .filter(|w| !w.is_empty())
         .map(str::to_owned)
         .collect()
 }
@@ -100,6 +102,21 @@ mod tests {
     #[test]
     fn apostrophes_kept() {
         assert_eq!(normalize("Don't STOP!"), vec!["don't", "stop"]);
+    }
+
+    #[test]
+    fn typographic_apostrophes_match_straight_ones() {
+        assert_eq!(word_errors("don\u{2019}t go", "don't go").wer(), 0.0);
+        assert_eq!(word_errors("it\u{2018}s", "it's").wer(), 0.0);
+    }
+
+    #[test]
+    fn quote_marks_around_words_are_ignored() {
+        assert_eq!(word_errors("'hello' world", "hello world").wer(), 0.0);
+        assert_eq!(
+            normalize("\u{2018}quoted\u{2019} don't"),
+            vec!["quoted", "don't"]
+        );
     }
 
     #[test]
