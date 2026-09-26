@@ -76,6 +76,39 @@ fn worker_that_keeps_crashing_reports_an_error() {
 }
 
 #[test]
+fn kill_switch_ends_a_hung_transcription_at_once_without_restarting() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = loaded(&["--hang-always"], dir.path());
+    let killer = c.killer();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        killer.kill();
+    });
+    let t0 = std::time::Instant::now();
+    let err = c
+        .transcribe(&vec![0.0; 10], Duration::from_secs(30))
+        .unwrap_err();
+    assert!(matches!(err, ClientError::Stopped), "{err}");
+    assert!(
+        t0.elapsed() < Duration::from_secs(5),
+        "took {:?}",
+        t0.elapsed()
+    );
+    assert_eq!(c.restarts(), 0);
+}
+
+#[test]
+fn a_stopped_client_refuses_further_work() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = loaded(&[], dir.path());
+    c.killer().kill();
+    assert!(matches!(
+        c.transcribe(&vec![0.0; 10], Duration::from_secs(5)),
+        Err(ClientError::Stopped)
+    ));
+}
+
+#[test]
 fn protocol_version_mismatch_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let err = SttClient::spawn(spec(&["--bad-version"], dir.path()))

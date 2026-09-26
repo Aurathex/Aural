@@ -4,9 +4,10 @@
 use aural_core::error::ErrorCode;
 use aural_engines::{Backend, Engine};
 use aural_models::{ModelEntry, ModelStore};
-use aural_stt_protocol::client::{ClientError, SttClient, WorkerSpec};
+use aural_stt_protocol::client::{ClientError, SttClient, WorkerKiller, WorkerSpec};
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -30,14 +31,21 @@ pub enum EngineStatus {
 
 pub struct EngineHost {
     client: Mutex<Option<SttClient>>,
+    /// Stops the current worker without waiting for `client` (held during a
+    /// transcription); lives outside that lock on purpose.
+    killer: Mutex<Option<WorkerKiller>>,
     status: Mutex<EngineStatus>,
+    /// Bumped by every load/unload so a slow, superseded load can't install itself.
+    generation: AtomicU64,
 }
 
 impl Default for EngineHost {
     fn default() -> Self {
         Self {
             client: Mutex::new(None),
+            killer: Mutex::new(None),
             status: Mutex::new(EngineStatus::NoModel),
+            generation: AtomicU64::new(0),
         }
     }
 }
@@ -83,33 +91,45 @@ impl EngineHost {
         matches!(self.status(), EngineStatus::Ready { .. })
     }
 
-    /// Stop the worker and free the model's memory.
+    /// Kill the current worker immediately; a transcription in progress ends with an
+    /// error instead of being waited for.
+    fn stop_current(&self) {
+        if let Some(k) = self.killer.lock().ok().and_then(|mut g| g.take()) {
+            k.kill();
+        }
+    }
+
+    /// Stop the worker and free the model's memory. Never blocks on a transcription
+    /// or a load in progress.
     pub fn unload(&self) {
-        if let Ok(mut c) = self.client.lock() {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.stop_current();
+        if let Ok(mut c) = self.client.try_lock() {
             *c = None;
         }
         self.set_status(EngineStatus::NoModel);
     }
 
     /// Start a fresh worker for `entry` and load it (blocking; call off the UI thread).
+    /// The client lock is only taken briefly to swap workers, never during the load.
     pub fn load(&self, entry: &ModelEntry, store: &ModelStore) {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.stop_current();
         self.set_status(EngineStatus::Loading {
             model: entry.id.clone(),
         });
-        let mut guard = match self.client.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        *guard = None; // stop the previous worker first
         let model_path = match entry.engine {
             Engine::Parakeet => store.dir(&entry.id),
             Engine::Whisper => store.dir(&entry.id).join(&entry.files[0].name),
         };
-        let result = SttClient::spawn(WorkerSpec {
+        let spawned = SttClient::spawn(WorkerSpec {
             exe: worker_exe(entry.engine),
             args: vec![],
-        })
-        .and_then(|mut c| {
+        });
+        let result = spawned.and_then(|mut c| {
+            if let Ok(mut k) = self.killer.lock() {
+                *k = Some(c.killer());
+            }
             c.load(
                 model_path,
                 entry.engine,
@@ -119,6 +139,9 @@ impl EngineHost {
             )?;
             Ok(c)
         });
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return; // superseded by a newer load or an unload; drop this worker
+        }
         match result {
             Ok(client) => {
                 self.set_status(EngineStatus::Ready {
@@ -126,6 +149,7 @@ impl EngineHost {
                     label: client.label().unwrap_or(&entry.name).to_owned(),
                     backend: client.backend().unwrap_or("cpu").to_owned(),
                 });
+                let mut guard = self.client.lock().unwrap_or_else(|p| p.into_inner());
                 *guard = Some(client);
             }
             Err(e) => self.set_status(EngineStatus::Error {
@@ -141,7 +165,7 @@ impl EngineHost {
         let seconds = pcm.len() as u64 / 16_000;
         let timeout = Duration::from_secs(30 + 2 * seconds);
         client.transcribe(pcm, timeout).map_err(|e| match e {
-            ClientError::NotLoaded => ErrorCode::NoModel,
+            ClientError::NotLoaded | ClientError::Stopped => ErrorCode::NoModel,
             _ => ErrorCode::EngineFailed,
         })
     }

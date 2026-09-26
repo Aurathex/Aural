@@ -6,9 +6,12 @@ use crate::codec::{read_msg, write_msg, write_pcm};
 use crate::msg::{Request, Response};
 use crate::PROTOCOL_VERSION;
 use aural_engines::{Backend, Engine};
+use std::os::windows::io::{AsHandle, OwnedHandle};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -25,6 +28,8 @@ pub enum ClientError {
     WorkerDied(String),
     Engine(String),
     NotLoaded,
+    /// The client was stopped on purpose (model switch, unload, Delete Aural).
+    Stopped,
 }
 
 impl std::fmt::Display for ClientError {
@@ -36,6 +41,7 @@ impl std::fmt::Display for ClientError {
             ClientError::WorkerDied(e) => write!(f, "the speech engine stopped: {e}"),
             ClientError::Engine(e) => write!(f, "{e}"),
             ClientError::NotLoaded => write!(f, "no speech model is loaded"),
+            ClientError::Stopped => write!(f, "the speech engine was stopped"),
         }
     }
 }
@@ -145,6 +151,37 @@ impl Proc {
     }
 }
 
+/// Stops a client's worker from any thread, without waiting for whatever the client is
+/// doing (a long load or transcription). The client then refuses further work instead
+/// of restarting the worker. Holds a handle to the process itself, never a bare PID, so
+/// it can't terminate an unrelated process that later reused the ID.
+#[derive(Clone)]
+pub struct WorkerKiller {
+    process: Arc<Mutex<Option<OwnedHandle>>>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl WorkerKiller {
+    pub fn kill(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        if let Ok(guard) = self.process.lock() {
+            if let Some(h) = guard.as_ref() {
+                terminate(h);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn terminate(h: &OwnedHandle) {
+    use std::os::windows::io::AsRawHandle;
+    // SAFETY: a valid process handle we own; terminating an already-exited process
+    // just fails.
+    unsafe {
+        windows_sys::Win32::System::Threading::TerminateProcess(h.as_raw_handle(), 1);
+    }
+}
+
 pub struct SttClient {
     spec: WorkerSpec,
     proc: Option<Proc>,
@@ -153,12 +190,14 @@ pub struct SttClient {
     backend: Option<String>,
     restarts: u32,
     next_id: u64,
+    process: Arc<Mutex<Option<OwnedHandle>>>,
+    stopped: Arc<AtomicBool>,
 }
 
 impl SttClient {
     pub fn spawn(spec: WorkerSpec) -> Result<Self, ClientError> {
         let proc = Proc::start(&spec)?;
-        Ok(Self {
+        let c = Self {
             spec,
             proc: Some(proc),
             loaded: None,
@@ -166,7 +205,33 @@ impl SttClient {
             backend: None,
             restarts: 0,
             next_id: 1,
-        })
+            process: Arc::new(Mutex::new(None)),
+            stopped: Arc::new(AtomicBool::new(false)),
+        };
+        c.track_process();
+        Ok(c)
+    }
+
+    /// Remember the current worker's process handle for the kill switch.
+    fn track_process(&self) {
+        let handle = self
+            .proc
+            .as_ref()
+            .and_then(|p| p.child.as_handle().try_clone_to_owned().ok());
+        if let Ok(mut g) = self.process.lock() {
+            *g = handle;
+        }
+    }
+
+    pub fn killer(&self) -> WorkerKiller {
+        WorkerKiller {
+            process: self.process.clone(),
+            stopped: self.stopped.clone(),
+        }
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
     }
 
     pub fn label(&self) -> Option<&str> {
@@ -196,9 +261,17 @@ impl SttClient {
             threads,
             timeout,
         };
-        self.send_load(&args)?;
-        self.loaded = Some(args);
-        Ok(())
+        if self.is_stopped() {
+            return Err(ClientError::Stopped);
+        }
+        match self.send_load(&args) {
+            Err(_) if self.is_stopped() => Err(ClientError::Stopped),
+            Err(e) => Err(e),
+            Ok(()) => {
+                self.loaded = Some(args);
+                Ok(())
+            }
+        }
     }
 
     fn send_load(&mut self, a: &LoadArgs) -> Result<(), ClientError> {
@@ -229,8 +302,12 @@ impl SttClient {
         if let Some(mut p) = self.proc.take() {
             p.kill();
         }
+        if self.is_stopped() {
+            return Err(ClientError::Stopped);
+        }
         self.restarts += 1;
         self.proc = Some(Proc::start(&self.spec)?);
+        self.track_process();
         if let Some(args) = self.loaded.clone() {
             self.send_load(&args)?;
         }
@@ -263,10 +340,14 @@ impl SttClient {
     /// Transcribe 16 kHz mono audio. On a crash or timeout the worker is replaced, the
     /// model reloaded and the request retried once.
     pub fn transcribe(&mut self, pcm: &[f32], timeout: Duration) -> Result<String, ClientError> {
+        if self.is_stopped() {
+            return Err(ClientError::Stopped);
+        }
         if self.loaded.is_none() {
             return Err(ClientError::NotLoaded);
         }
         match self.attempt(pcm, timeout) {
+            Err(_) if self.is_stopped() => Err(ClientError::Stopped),
             Err(ClientError::Timeout | ClientError::WorkerDied(_)) => {
                 self.restart()?;
                 let second = self.attempt(pcm, timeout);
