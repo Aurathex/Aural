@@ -108,7 +108,13 @@ impl DeletionPlan {
         };
         let mut steps = vec!["ping 127.0.0.1 -n 3 >nul".to_owned()];
         for dir in &self.remove_dirs {
-            steps.push(format!("rmdir /s /q {}", quote(dir)?));
+            // WebView2 can hold files open for a few seconds after Aural exits, and one
+            // rmdir gives up at the first locked file: retry for up to ~30 s. (%i is the
+            // loop variable of a `cmd /C` line; paths themselves never contain %.)
+            let d = quote(dir)?;
+            steps.push(format!(
+                "for /l %i in (1,1,30) do @if exist {d} (rmdir /s /q {d} 2>nul & if exist {d} ping 127.0.0.1 -n 2 >nul)"
+            ));
         }
         if let Some(u) = &self.run_uninstaller {
             steps.push(format!("{} {}", quote(&u.program)?, u.args.join(" ")));
@@ -274,6 +280,44 @@ mod tests {
     fn refuses_paths_that_would_break_out_of_the_command() {
         let paths = AppPaths::under(Path::new(r#"C:\x" & del C:\y & ""#));
         assert!(plan(&paths, None, None).after_exit_command().is_err());
+    }
+
+    /// WebView2 can keep files in the data folder open for several seconds after Aural
+    /// exits. Found in the real app: one rmdir hit a locked file under EBWebView and
+    /// gave up, leaving the data folder behind. The cleanup must keep trying.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_still_locked_after_exit_does_not_leave_the_data_folder_behind() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(root.path());
+        paths.ensure().unwrap();
+        let locked = paths
+            .data_dir
+            .join("EBWebView")
+            .join("Default")
+            .join("DIPS");
+        std::fs::create_dir_all(locked.parent().unwrap()).unwrap();
+        std::fs::write(&locked, b"x").unwrap();
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0) // exclusive, like a live WebView2 profile
+            .open(&locked)
+            .unwrap();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(4));
+            drop(file);
+        });
+        let cmd = plan(&paths, None, None).after_exit_command().unwrap();
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("cmd.exe")
+            .raw_arg("/C")
+            .raw_arg(&cmd)
+            .status()
+            .unwrap();
+        holder.join().unwrap();
+        assert!(!paths.data_dir.exists(), "data folder still there");
+        assert!(!paths.config_dir.exists(), "config folder still there");
     }
 
     /// Runs the real command with cmd.exe against temp folders (takes ~2 s).
