@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "parakeet-tdt-0.6b-v2-int8",
+      "name": "Parakeet TDT 0.6B v2",
+      "engine": "parakeet",
+      "description": "Most accurate English model. Fast on modern CPUs.",
+      "languages": ["en"],
+      "min_ram_mb": 2048,
+      "accuracy": "best",
+      "speed": "fast",
+      "license": {
+        "id": "CC-BY-4.0",
+        "url": "https://creativecommons.org/licenses/by/4.0/",
+        "attribution": "Parakeet TDT 0.6B v2 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2), licensed CC BY 4.0. Converted to ONNX with int8 quantization by istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx)."
+      },
+      "source": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx",
+      "files": [
+        {
+          "name": "encoder-model.int8.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/encoder-model.int8.onnx",
+          "sha256": "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155",
+          "size": 652184014
+        },
+        {
+          "name": "decoder_joint-model.int8.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/decoder_joint-model.int8.onnx",
+          "sha256": "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3",
+          "size": 8998286
+        },
+        {
+          "name": "nemo128.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/nemo128.onnx",
+          "sha256": "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f",
+          "size": 139764
+        },
+        {
+          "name": "vocab.txt",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85/vocab.txt",
+          "sha256": "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+          "size": 9384
+        }
+      ]
+    },
+    {
+      "id": "whisper-small.en-q8",
+      "name": "Whisper small.en",
+      "engine": "whisper",
+      "description": "Good accuracy, lighter on memory. A solid choice for older PCs.",
+      "languages": ["en"],
+      "min_ram_mb": 1024,
+      "accuracy": "good",
+      "speed": "moderate",
+      "license": {
+        "id": "MIT",
+        "url": "https://github.com/openai/whisper/blob/main/LICENSE",
+        "attribution": "Whisper small.en by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized."
+      },
+      "source": "https://huggingface.co/ggerganov/whisper.cpp",
+      "files": [
+        {
+          "name": "ggml-small.en-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en-q8_0.bin",
+          "sha256": "67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067",
+          "size": 264477561
+        }
+      ]
+    },
+    {
+      "id": "whisper-base.en-q8",
+      "name": "Whisper base.en",
+      "engine": "whisper",
+      "description": "Smallest and quickest to download. Less accurate.",
+      "languages": ["en"],
+      "min_ram_mb": 512,
+      "accuracy": "basic",
+      "speed": "fast",
+      "license": {
+        "id": "MIT",
+        "url": "https://github.com/openai/whisper/blob/main/LICENSE",
+        "attribution": "Whisper base.en by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized."
+      },
+      "source": "https://huggingface.co/ggerganov/whisper.cpp",
+      "files": [
+        {
+          "name": "ggml-base.en-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en-q8_0.bin",
+          "sha256": "a4d4a0768075e13cfd7e19df3ae2dbc4a68d37d36a7dad45e8410c9a34f8c87e",
+          "size": 81781811
+        }
+      ]
+    }
+  ]
+}

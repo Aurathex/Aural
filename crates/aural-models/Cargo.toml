@@ -1,0 +1,22 @@
+[package]
+name = "aural-models"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Aural model catalog, install store, verified downloads and recommendations."
+
+[dependencies]
+anyhow = "1.0.104"
+aural-engines = { path = "../aural-engines" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+ureq = "3.4.2"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tiny_http = "0.12.0"
+
+[lints]
+workspace = true
