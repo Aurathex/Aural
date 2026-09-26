@@ -218,7 +218,11 @@ mod tests {
             },
         };
         // SAFETY: initialised INPUT.
-        unsafe { SendInput(&[i], std::mem::size_of::<INPUT>() as i32) };
+        let sent = unsafe { SendInput(&[i], std::mem::size_of::<INPUT>() as i32) };
+        assert_eq!(
+            sent, 1,
+            "Windows refused synthetic input: this test needs an unlocked, interactive desktop"
+        );
     }
 
     /// Drives the real Windows hook with synthetic F13 presses (F13 exists on almost
