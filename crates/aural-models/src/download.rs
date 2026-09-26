@@ -10,6 +10,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Progress {
@@ -61,6 +63,23 @@ fn hash_file(path: &Path) -> Result<String, DownloadError> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+#[derive(Debug, Clone)]
+pub struct DownloadOptions {
+    /// Time allowed to connect and to receive the response headers.
+    pub connect_timeout: Duration,
+    /// Give up when no data arrives for this long (a stalled connection).
+    pub stall_timeout: Duration,
+}
+
+impl Default for DownloadOptions {
+    fn default() -> Self {
+        Self {
+            connect_timeout: Duration::from_secs(20),
+            stall_timeout: Duration::from_secs(60),
+        }
+    }
+}
+
 /// Download every file of `entry` into the store, reporting progress over the whole
 /// model. Cancelling keeps `.partial` files so the next attempt resumes.
 pub fn download(
@@ -69,17 +88,39 @@ pub fn download(
     cancel: &AtomicBool,
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), DownloadError> {
+    download_with(
+        entry,
+        store,
+        cancel,
+        on_progress,
+        &DownloadOptions::default(),
+    )
+}
+
+pub fn download_with(
+    entry: &ModelEntry,
+    store: &ModelStore,
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(Progress),
+    opts: &DownloadOptions,
+) -> Result<(), DownloadError> {
     let dir = store.dir(&entry.id);
     std::fs::create_dir_all(&dir).map_err(io)?;
     let total = entry.total_size();
     let mut done_before = 0u64;
     for file in &entry.files {
-        fetch_file(file, &dir, cancel, &mut |n| {
-            on_progress(Progress {
-                downloaded: done_before + n,
-                total,
-            })
-        })?;
+        fetch_file(
+            file,
+            &dir,
+            cancel,
+            &mut |n| {
+                on_progress(Progress {
+                    downloaded: done_before + n,
+                    total,
+                })
+            },
+            opts,
+        )?;
         done_before += file.size;
     }
     store
@@ -97,6 +138,7 @@ fn fetch_file(
     dir: &Path,
     cancel: &AtomicBool,
     on_bytes: &mut dyn FnMut(u64),
+    opts: &DownloadOptions,
 ) -> Result<(), DownloadError> {
     let target = dir.join(&file.name);
     let partial = dir.join(format!("{}.partial", file.name));
@@ -119,11 +161,16 @@ fn fetch_file(
     }
 
     if have < file.size {
-        let mut req = ureq::get(&file.url);
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_connect(Some(opts.connect_timeout))
+            .timeout_recv_response(Some(opts.connect_timeout))
+            .build()
+            .into();
+        let mut req = agent.get(&file.url);
         if have > 0 {
             req = req.header("Range", &format!("bytes={have}-"));
         }
-        let mut resp = req.call().map_err(|e| DownloadError::Http(e.to_string()))?;
+        let resp = req.call().map_err(|e| DownloadError::Http(e.to_string()))?;
         // A server that ignores Range sends the whole file again: start over.
         if have > 0 && resp.status().as_u16() != 206 {
             have = 0;
@@ -135,22 +182,65 @@ fn fetch_file(
             .truncate(have == 0)
             .open(&partial)
             .map_err(io)?;
-        let mut reader = resp.body_mut().as_reader();
-        let mut buf = vec![0u8; 256 * 1024];
         on_bytes(have);
+
+        // Reads block, so they happen on a helper thread; this loop stays free to
+        // notice Cancel and stalled connections within a quarter of a second.
+        let (tx, rx) = mpsc::sync_channel::<Result<Vec<u8>, String>>(8);
+        let mut reader = resp.into_body().into_reader();
+        std::thread::spawn(move || loop {
+            let mut buf = vec![0u8; 256 * 1024];
+            match reader.read(&mut buf) {
+                Ok(0) => {
+                    let _ = tx.send(Ok(Vec::new()));
+                    return;
+                }
+                Ok(n) => {
+                    buf.truncate(n);
+                    if tx.send(Ok(buf)).is_err() {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(e.to_string()));
+                    return;
+                }
+            }
+        });
+        let mut last_data = Instant::now();
         loop {
             if cancel.load(Ordering::Relaxed) {
                 return Err(DownloadError::Cancelled);
             }
-            let n = reader
-                .read(&mut buf)
-                .map_err(|e| DownloadError::Http(e.to_string()))?;
-            if n == 0 {
-                break;
+            match rx.recv_timeout(Duration::from_millis(250)) {
+                Ok(Ok(chunk)) if chunk.is_empty() => break,
+                Ok(Ok(chunk)) => {
+                    if have + chunk.len() as u64 > file.size {
+                        drop(out);
+                        let _ = std::fs::remove_file(&partial);
+                        return Err(DownloadError::Http(format!(
+                            "the server sent more than the expected {} bytes for {}",
+                            file.size, file.name
+                        )));
+                    }
+                    out.write_all(&chunk).map_err(io)?;
+                    have += chunk.len() as u64;
+                    on_bytes(have);
+                    last_data = Instant::now();
+                }
+                Ok(Err(e)) => return Err(DownloadError::Http(e)),
+                Err(RecvTimeoutError::Timeout) => {
+                    if last_data.elapsed() > opts.stall_timeout {
+                        return Err(DownloadError::Http(format!(
+                            "no data received for {} s; check your connection and try again",
+                            opts.stall_timeout.as_secs().max(1)
+                        )));
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(DownloadError::Http("the connection closed".into()))
+                }
             }
-            out.write_all(&buf[..n]).map_err(io)?;
-            have += n as u64;
-            on_bytes(have.min(file.size));
         }
         out.flush().map_err(io)?;
     }
@@ -307,6 +397,90 @@ mod tests {
         download(&e, &store, &AtomicBool::new(false), &mut |_| {}).unwrap();
         assert!(srv.requests.lock().unwrap().is_empty());
         assert!(store.is_installed(&e));
+    }
+
+    /// Sends the first `send` bytes of a `total`-byte body, then goes silent.
+    fn serve_stalling(total: usize, send: usize) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                use std::io::{Read, Write};
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf);
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {total}\r\n\r\n");
+                let _ = s.write_all(head.as_bytes());
+                let _ = s.write_all(&vec![7u8; send]);
+                let _ = s.flush();
+                std::thread::sleep(std::time::Duration::from_secs(30));
+            }
+        });
+        format!("http://127.0.0.1:{port}/f.bin")
+    }
+
+    fn quick() -> DownloadOptions {
+        DownloadOptions {
+            stall_timeout: std::time::Duration::from_millis(700),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_stalled_download_fails_instead_of_hanging() {
+        let url = serve_stalling(100_000, 1_000);
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let e = entry(&url, &[0; 100_000], sha(&[0; 100_000]));
+        let t0 = std::time::Instant::now();
+        let err =
+            download_with(&e, &store, &AtomicBool::new(false), &mut |_| {}, &quick()).unwrap_err();
+        assert!(matches!(err, DownloadError::Http(_)), "{err}");
+        assert!(
+            t0.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            t0.elapsed()
+        );
+    }
+
+    #[test]
+    fn cancel_works_even_while_the_server_is_silent() {
+        let url = serve_stalling(100_000, 1_000);
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let e = entry(&url, &[0; 100_000], sha(&[0; 100_000]));
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let c2 = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            c2.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+        let slow = DownloadOptions {
+            stall_timeout: std::time::Duration::from_secs(60),
+            ..Default::default()
+        };
+        let t0 = std::time::Instant::now();
+        let err = download_with(&e, &store, &cancel, &mut |_| {}, &slow).unwrap_err();
+        assert!(matches!(err, DownloadError::Cancelled), "{err}");
+        assert!(
+            t0.elapsed() < std::time::Duration::from_secs(3),
+            "took {:?}",
+            t0.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_server_sending_more_than_expected_is_stopped_at_the_expected_size() {
+        let b = body();
+        let big: Vec<u8> = b.iter().chain(b.iter()).copied().collect();
+        let srv = serve(big);
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let e = entry(&format!("{}/f.bin", srv.base), &b, sha(&b));
+        let err = download(&e, &store, &AtomicBool::new(false), &mut |_| {}).unwrap_err();
+        assert!(matches!(err, DownloadError::Http(_)), "{err}");
+        let partial = store.dir(&e.id).join("f.bin.partial");
+        assert!(!partial.exists() || std::fs::metadata(&partial).unwrap().len() <= b.len() as u64);
+        assert!(!store.is_installed(&e));
     }
 
     #[test]
