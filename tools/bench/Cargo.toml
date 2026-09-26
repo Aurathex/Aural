@@ -9,9 +9,9 @@ description = "Developer tool: benchmark local STT engines (WER, latency, memory
 [features]
 # Engines are mutually exclusive: ONNX Runtime and whisper.cpp must not share a binary.
 onnx = ["dep:transcribe-rs", "transcribe-rs/onnx"]
-ggml = []
-vulkan = ["ggml"]
-cuda = ["ggml"]
+ggml = ["dep:whisper-rs"]
+vulkan = ["ggml", "whisper-rs/vulkan"]
+cuda = ["ggml", "whisper-rs/cuda"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -20,6 +20,7 @@ rubato = "5.0.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"
 transcribe-rs = { version = "0.3.11", default-features = false, optional = true }
+whisper-rs = { version = "0.16.0", optional = true }
 clap = { version = "4.6.7", features = ["derive"] }
 windows-sys = { version = "0.61.2", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
 

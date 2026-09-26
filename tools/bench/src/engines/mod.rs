@@ -3,3 +3,6 @@ compile_error!("features `onnx` and `ggml` are mutually exclusive (ONNX Runtime 
 
 #[cfg(feature = "onnx")]
 pub mod onnx_parakeet;
+
+#[cfg(feature = "ggml")]
+pub mod ggml_whisper;
