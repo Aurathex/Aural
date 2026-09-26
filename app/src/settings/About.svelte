@@ -34,7 +34,7 @@
     <h2>Credits</h2>
     <div class="credits">
       {#each app.models as m (m.id)}<p>{m.attribution}</p>{/each}
-      <p>Aural's own license and third-party notices are in the install folder (LICENSE.md, THIRD_PARTY_NOTICES.md).</p>
+      <p>Aural is free for personal and other noncommercial use under the PolyForm Noncommercial License 1.0.0; commercial use needs permission. The license and third-party notices are in the install folder (LICENSE.md, THIRD_PARTY_NOTICES.md).</p>
     </div>
   </section>
 

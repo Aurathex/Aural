@@ -18,6 +18,9 @@ allow = [
   "MPL-2.0",
 ]
 confidence-threshold = 0.9
+# Aural's own crates (publish = false) carry Aural's license, which is not a
+# dependency license; only third-party crates are checked against the list above.
+private = { ignore = true }
 
 # Mozilla CA root certificate data, pulled in at build time by ort-sys (via ureq) to
 # download ONNX Runtime. Data-only, permissive; scoped to this crate only.

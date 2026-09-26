@@ -53,13 +53,16 @@ models and settings too.
 
 ## Documentation
 
-- [Privacy](PRIVACY.md) · [Security](SECURITY.md)
+- [Privacy](PRIVACY.md) · [Security](SECURITY.md) · [Licensing](docs/LICENSING.md)
 - [Building on Windows](docs/building-windows.md) · [Releasing](docs/releasing.md)
 - [Design spec](docs/superpowers/specs/2026-09-25-aural-design.md) ·
   [Benchmark tool](tools/bench/README.md)
 
 ## License
 
-Currently dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE); a change to a
-noncommercial license is proposed and awaiting the maintainer's approval. Speech models
-keep their own licenses (shown in the app under About).
+Aural is **source-available**, not open source: you may use, study, modify and share it
+for free for **noncommercial** purposes under the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). Selling it, bundling it into a
+commercial product or using it commercially needs permission from the copyright holder.
+See [docs/LICENSING.md](docs/LICENSING.md) for the reasoning. Speech models and
+third-party components keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).

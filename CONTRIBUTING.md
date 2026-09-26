@@ -6,8 +6,10 @@ Thanks for your interest in Aural.
 dictation in a particular app, say which app (and version), what you expected, and what
 the pill showed.
 
-**Pull requests are not being accepted yet.** Aural's license is being finalised; once contributor terms are in place this file
-will explain how to contribute code.
+**Pull requests are not being accepted yet.** Aural is source-available under a noncommercial license
+([docs/LICENSING.md](docs/LICENSING.md)); contributor terms that let the copyright holder
+keep offering commercial licenses aren't in place yet. Once they are, this file will
+explain how to contribute code.
 
 ## Ground rules for the project
 
