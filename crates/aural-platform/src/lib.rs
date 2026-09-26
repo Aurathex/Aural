@@ -5,6 +5,7 @@ pub mod autostart;
 pub mod chord;
 pub mod consent;
 pub mod insert;
+pub mod install;
 
 #[cfg(windows)]
 pub mod hook;

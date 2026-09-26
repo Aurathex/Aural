@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 /// with the install (Delete Aural and the uninstaller each remove one of them).
 pub const DIR_NAME: &str = "com.aurathex.aural";
 
+/// File Aural writes into each root it creates. Delete Aural only removes folders that
+/// carry it, so a misconfigured root can never delete someone else's files.
+pub const MARKER: &str = ".aural-root";
+
 /// `data_dir` (%LOCALAPPDATA%\com.aurathex.aural): models and logs — machine-local, large.
 /// `config_dir` (%APPDATA%\com.aurathex.aural): settings.json — small, roams with the profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +38,13 @@ impl AppPaths {
     /// standard per-user folders.
     pub fn from_env_with(get: impl Fn(&str) -> Option<String>) -> Result<Self> {
         if let Some(root) = get("AURAL_DATA_DIR").filter(|s| !s.is_empty()) {
-            return Ok(Self::under(Path::new(&root)));
+            let root = Path::new(&root);
+            anyhow::ensure!(
+                root.is_absolute(),
+                "AURAL_DATA_DIR must be an absolute path, got {}",
+                root.display()
+            );
+            return Ok(Self::under(root));
         }
         let local = get("LOCALAPPDATA").context("LOCALAPPDATA is not set")?;
         let roaming = get("APPDATA").context("APPDATA is not set")?;
@@ -42,6 +52,25 @@ impl AppPaths {
             data_dir: Path::new(&local).join(DIR_NAME),
             config_dir: Path::new(&roaming).join(DIR_NAME),
         })
+    }
+
+    /// Create both roots (and the models folder) and mark them as Aural's.
+    pub fn ensure(&self) -> Result<()> {
+        std::fs::create_dir_all(self.models_dir())
+            .with_context(|| format!("creating {}", self.models_dir().display()))?;
+        std::fs::create_dir_all(&self.config_dir)
+            .with_context(|| format!("creating {}", self.config_dir.display()))?;
+        for root in [&self.data_dir, &self.config_dir] {
+            let marker = root.join(MARKER);
+            if !marker.is_file() {
+                std::fs::write(
+                    &marker,
+                    b"Created by Aural. Delete Aural removes this folder.\n",
+                )
+                .with_context(|| format!("writing {}", marker.display()))?;
+            }
+        }
+        Ok(())
     }
 
     pub fn models_dir(&self) -> PathBuf {
@@ -103,6 +132,24 @@ mod tests {
         .unwrap();
         assert_eq!(p.data_dir, Path::new("D:/sandbox/data"));
         assert_eq!(p.config_dir, Path::new("D:/sandbox/config"));
+    }
+
+    #[test]
+    fn relative_override_is_rejected() {
+        let r = AppPaths::from_env_with(|k| (k == "AURAL_DATA_DIR").then(|| "sandbox".into()));
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn ensure_creates_both_roots_with_markers() {
+        let root = tempfile::tempdir().unwrap();
+        let p = AppPaths::under(root.path());
+        p.ensure().unwrap();
+        assert!(p.data_dir.join(MARKER).is_file());
+        assert!(p.config_dir.join(MARKER).is_file());
+        assert!(p.models_dir().is_dir());
+        // Idempotent.
+        p.ensure().unwrap();
     }
 
     #[test]

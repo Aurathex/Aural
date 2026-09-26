@@ -243,7 +243,8 @@ pub fn delete_aural(app: State<'_, Arc<App>>, confirmation: String) -> Res<()> {
     let install_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-    let plan = uninstall::plan(&app.paths, install_dir.as_deref());
+    let registered = aural_platform::install::registered_uninstaller();
+    let plan = uninstall::plan(&app.paths, install_dir.as_deref(), registered.as_deref());
     // Validate before touching anything: a refused plan leaves Aural fully working.
     let cleanup = plan.after_exit_command().map_err(err)?;
 

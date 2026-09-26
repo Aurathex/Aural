@@ -33,12 +33,25 @@ pub struct DeletionPlan {
     install_dir: Option<PathBuf>,
 }
 
+fn same_path(a: &Path, b: &Path) -> bool {
+    // Windows paths are case-insensitive.
+    a.display().to_string().to_lowercase() == b.display().to_string().to_lowercase()
+}
+
 /// `install_dir` is the folder of the running executable; the NSIS installer puts
-/// `uninstall.exe` there. Dev and portable builds have none, so only data is removed.
-pub fn plan(paths: &AppPaths, install_dir: Option<&Path>) -> DeletionPlan {
+/// `uninstall.exe` there. `registered_uninstaller` is the path Windows has on record
+/// for Aural (HKCU Uninstall key). The uninstaller runs only when both agree, so a
+/// copied or portable Aural never launches some other product's `uninstall.exe`.
+/// Dev and portable builds have none, so only data is removed.
+pub fn plan(
+    paths: &AppPaths,
+    install_dir: Option<&Path>,
+    registered_uninstaller: Option<&Path>,
+) -> DeletionPlan {
     let run_uninstaller = install_dir
         .map(|d| d.join("uninstall.exe"))
         .filter(|p| p.is_file())
+        .filter(|p| registered_uninstaller.is_some_and(|r| same_path(p, r)))
         .map(|program| Command {
             program,
             args: vec!["/S".into()],
@@ -59,6 +72,12 @@ impl DeletionPlan {
         for dir in &self.remove_dirs {
             if !self.allowed_roots.iter().any(|r| r == dir) {
                 bail!("refusing to delete {}: not an Aural folder", dir.display());
+            }
+            if dir.exists() && !dir.join(crate::paths::MARKER).is_file() {
+                bail!(
+                    "refusing to delete {}: it was not created by Aural",
+                    dir.display()
+                );
             }
             if self
                 .install_dir
@@ -126,7 +145,7 @@ mod tests {
     #[test]
     fn plan_covers_data_config_and_autostart_only() {
         let paths = AppPaths::under(Path::new("C:/root"));
-        let plan = plan(&paths, None);
+        let plan = plan(&paths, None, None);
         assert_eq!(
             plan.remove_dirs,
             vec![
@@ -143,17 +162,50 @@ mod tests {
         let paths = AppPaths::under(Path::new("C:/root"));
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("uninstall.exe"), b"").unwrap();
-        let plan = plan(&paths, Some(dir.path()));
+        let registered = dir.path().join("uninstall.exe");
+        let plan = plan(&paths, Some(dir.path()), Some(&registered));
         let cmd = plan.run_uninstaller.unwrap();
         assert_eq!(cmd.program, dir.path().join("uninstall.exe"));
         assert_eq!(cmd.args, vec!["/S".to_string()]);
     }
 
     #[test]
+    fn a_foreign_uninstaller_next_to_a_copied_exe_is_never_run() {
+        let paths = AppPaths::under(Path::new("C:/root"));
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("uninstall.exe"), b"").unwrap();
+        // Not registered as Aural's uninstaller at all.
+        assert_eq!(plan(&paths, Some(dir.path()), None).run_uninstaller, None);
+        // Aural is installed, but somewhere else.
+        let elsewhere = Path::new(r"C:\Users\u\AppData\Local\Aural\uninstall.exe");
+        assert_eq!(
+            plan(&paths, Some(dir.path()), Some(elsewhere)).run_uninstaller,
+            None
+        );
+    }
+
+    #[test]
+    fn registered_path_matches_regardless_of_case() {
+        let paths = AppPaths::under(Path::new("C:/root"));
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("uninstall.exe"), b"").unwrap();
+        let registered = PathBuf::from(
+            dir.path()
+                .join("UNINSTALL.EXE")
+                .display()
+                .to_string()
+                .to_uppercase(),
+        );
+        assert!(plan(&paths, Some(dir.path()), Some(&registered))
+            .run_uninstaller
+            .is_some());
+    }
+
+    #[test]
     fn plan_skips_uninstaller_for_portable_or_dev_builds() {
         let paths = AppPaths::under(Path::new("C:/root"));
         let dir = tempfile::tempdir().unwrap(); // no uninstall.exe here
-        assert_eq!(plan(&paths, Some(dir.path())).run_uninstaller, None);
+        assert_eq!(plan(&paths, Some(dir.path()), None).run_uninstaller, None);
     }
 
     #[test]
@@ -162,7 +214,8 @@ mod tests {
         let paths = AppPaths::under(root);
         let install = tempfile::tempdir().unwrap();
         std::fs::write(install.path().join("uninstall.exe"), b"").unwrap();
-        let cmd = plan(&paths, Some(install.path()))
+        let registered = install.path().join("uninstall.exe");
+        let cmd = plan(&paths, Some(install.path()), Some(&registered))
             .after_exit_command()
             .unwrap();
         let wait = cmd.find("ping 127.0.0.1").unwrap();
@@ -184,7 +237,7 @@ mod tests {
     #[test]
     fn after_exit_command_without_installer_only_removes_data() {
         let paths = AppPaths::under(Path::new(r"C:\root"));
-        let cmd = plan(&paths, None).after_exit_command().unwrap();
+        let cmd = plan(&paths, None, None).after_exit_command().unwrap();
         assert!(cmd.contains("rmdir") && !cmd.contains("uninstall"), "{cmd}");
     }
 
@@ -194,14 +247,25 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = AppPaths::under(root.path());
         let install = paths.data_dir.join("app");
-        let p = plan(&paths, Some(&install));
+        let p = plan(&paths, Some(&install), None);
         assert!(p.after_exit_command().is_err());
+    }
+
+    #[test]
+    fn refuses_existing_folders_that_aural_did_not_create() {
+        // e.g. AURAL_DATA_DIR pointed at the Desktop, which has its own "data" folder.
+        let root = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(root.path());
+        std::fs::create_dir_all(paths.data_dir.join("someone-elses-files")).unwrap();
+        assert!(plan(&paths, None, None).after_exit_command().is_err());
+        paths.ensure().unwrap();
+        assert!(plan(&paths, None, None).after_exit_command().is_ok());
     }
 
     #[test]
     fn refuses_a_directory_outside_the_aural_roots() {
         let paths = AppPaths::under(Path::new(r"C:\root"));
-        let mut p = plan(&paths, None);
+        let mut p = plan(&paths, None, None);
         p.remove_dirs.push(Path::new(r"C:\Windows").to_path_buf());
         assert!(p.after_exit_command().is_err());
     }
@@ -209,7 +273,7 @@ mod tests {
     #[test]
     fn refuses_paths_that_would_break_out_of_the_command() {
         let paths = AppPaths::under(Path::new(r#"C:\x" & del C:\y & ""#));
-        assert!(plan(&paths, None).after_exit_command().is_err());
+        assert!(plan(&paths, None, None).after_exit_command().is_err());
     }
 
     /// Runs the real command with cmd.exe against temp folders (takes ~2 s).
@@ -218,11 +282,12 @@ mod tests {
     fn after_exit_command_really_deletes_the_folders() {
         let root = tempfile::tempdir().unwrap();
         let paths = AppPaths::under(root.path());
+        paths.ensure().unwrap(); // as the app does at startup
         std::fs::create_dir_all(paths.models_dir().join("m")).unwrap();
         std::fs::write(paths.models_dir().join("m").join("w.onnx"), b"x").unwrap();
         std::fs::create_dir_all(&paths.config_dir).unwrap();
         std::fs::write(paths.settings_file(), b"{}").unwrap();
-        let cmd = plan(&paths, None).after_exit_command().unwrap();
+        let cmd = plan(&paths, None, None).after_exit_command().unwrap();
         use std::os::windows::process::CommandExt;
         let status = std::process::Command::new("cmd.exe")
             .raw_arg("/C")

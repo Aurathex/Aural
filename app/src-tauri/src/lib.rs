@@ -24,8 +24,7 @@ use tauri::{Manager, WindowEvent};
 
 fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
     let paths = AppPaths::from_env()?;
-    std::fs::create_dir_all(paths.models_dir())?;
-    std::fs::create_dir_all(&paths.config_dir)?;
+    paths.ensure()?;
     let loaded = settings::load(&paths.settings_file())?;
     let mut s = loaded.settings;
     let mut notice = loaded.notice;
