@@ -113,6 +113,56 @@ mod tests {
         assert!(wer < 0.3, "wer {wer}: {text}");
     }
 
+    /// DirectML really runs on the adapter Aural chooses (needs a PC with two GPUs, e.g.
+    /// this hybrid laptop). Run with `--features onnx -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn directml_follows_the_chosen_adapter() {
+        let _ort = crate::test_support::ort_lock();
+        let dir = std::env::var("AURAL_TEST_PARAKEET_DIR").expect("AURAL_TEST_PARAKEET_DIR");
+        let adapters = aural_platform::gpu::process_gpu_memory_by_adapter();
+        assert!(
+            adapters.len() >= 2,
+            "needs two graphics adapters: {adapters:?}"
+        );
+        // Each distinct card once (hybrid laptops list the built-in GPU per output).
+        let mut cards: Vec<(u32, String)> = Vec::new();
+        for a in &adapters {
+            if !cards.iter().any(|(_, n)| *n == a.name) {
+                cards.push((a.index, a.name.clone()));
+            }
+        }
+        for (index, name) in cards.iter().rev() {
+            transcribe_rs::accel::set_ort_accelerator(
+                transcribe_rs::accel::OrtAccelerator::DirectMl,
+            );
+            transcribe_rs::accel::set_directml_device(Some(*index));
+            let before = aural_platform::gpu::process_gpu_memory_by_adapter();
+            let model =
+                ParakeetModel::load(std::path::Path::new(&dir), &Quantization::Int8).unwrap();
+            let after = aural_platform::gpu::process_gpu_memory_by_adapter();
+            let grew = |a: &aural_platform::gpu::AdapterMemory| {
+                let was = before
+                    .iter()
+                    .find(|b| b.luid == a.luid)
+                    .map_or(0, |b| b.used_mb);
+                a.used_mb.saturating_sub(was)
+            };
+            let busiest = after.iter().max_by_key(|a| grew(a)).unwrap();
+            eprintln!(
+                "asked for {index} ({name}): grew {:?}",
+                after.iter().map(|a| (a.index, grew(a))).collect::<Vec<_>>()
+            );
+            assert_eq!(
+                &busiest.name, name,
+                "DirectML ran on {} instead of {name}",
+                busiest.name
+            );
+            drop(model);
+        }
+        transcribe_rs::accel::set_directml_device(None);
+    }
+
     /// Same as above on the graphics card via DirectML: it must really run there
     /// (verified), and be as accurate. Run with `--features onnx -- --ignored`.
     #[test]

@@ -51,6 +51,51 @@ pub fn gpu_device_from_log(lines: &[String]) -> Option<String> {
     device
 }
 
+/// A graphics device ggml can run whisper.cpp on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuKind {
+    Separate,
+    Integrated,
+}
+
+/// whisper.cpp's `gpu_device` counts graphics devices (separate and built-in) in ggml's
+/// order and uses 0 by default, which on hybrid laptops can be the built-in GPU. Prefer
+/// the first separate card.
+pub fn preferred_gpu_device(kinds: &[GpuKind]) -> i32 {
+    kinds
+        .iter()
+        .position(|k| *k == GpuKind::Separate)
+        .unwrap_or(0) as i32
+}
+
+/// The graphics devices ggml offers, in the order whisper.cpp counts them, with names.
+fn gpu_devices() -> Vec<(GpuKind, String)> {
+    use whisper_rs::whisper_rs_sys as sys;
+    let mut out = Vec::new();
+    // SAFETY: ggml's device registry is initialized on first use; the pointers it returns
+    // live for the process, and descriptions are NUL-terminated C strings.
+    unsafe {
+        for i in 0..sys::ggml_backend_dev_count() {
+            let dev = sys::ggml_backend_dev_get(i);
+            let kind = match sys::ggml_backend_dev_type(dev) {
+                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU => GpuKind::Separate,
+                sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU => GpuKind::Integrated,
+                _ => continue,
+            };
+            let desc = sys::ggml_backend_dev_description(dev);
+            let name = if desc.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(desc)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            out.push((kind, name));
+        }
+    }
+    out
+}
+
 /// Refuse to report a GPU benchmark that silently ran on the CPU.
 pub fn verify_backend(requested: Backend, gpu_device: Option<&str>) -> Result<String> {
     let expected_prefix = match requested {
@@ -95,12 +140,24 @@ pub fn load(model: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Tr
     capture::take();
     let mut params = WhisperContextParameters::default();
     params.use_gpu(backend != Backend::Cpu);
+    let devices = if backend == Backend::Cpu {
+        Vec::new()
+    } else {
+        gpu_devices()
+    };
+    let chosen = preferred_gpu_device(&devices.iter().map(|d| d.0).collect::<Vec<_>>());
+    params.gpu_device(chosen);
     let ctx = WhisperContext::new_with_params(model, params)
         .with_context(|| format!("loading whisper model {}", model.display()))?;
     // whisper.cpp initializes the GPU backend (and logs which one) when the state is
     // created, not when the model loads, so check only after create_state.
     let state = ctx.create_state().context("creating whisper state")?;
-    let backend_used = verify_backend(backend, gpu_device_from_log(&capture::take()).as_deref())?;
+    let mut backend_used =
+        verify_backend(backend, gpu_device_from_log(&capture::take()).as_deref())?;
+    // Say which card: "vulkan:Vulkan0 (NVIDIA GeForce RTX 4070 Laptop GPU)".
+    if let Some((_, name)) = devices.get(chosen as usize).filter(|d| !d.1.is_empty()) {
+        backend_used = format!("{backend_used} ({name})");
+    }
     let name = model
         .file_stem()
         .map_or_else(|| "whisper".into(), |n| n.to_string_lossy().into_owned());
@@ -168,6 +225,18 @@ mod tests {
 
     fn lines(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_separate_graphics_card_is_preferred() {
+        use GpuKind::*;
+        // Hybrid laptop where the built-in GPU is enumerated first.
+        assert_eq!(preferred_gpu_device(&[Integrated, Separate]), 1);
+        assert_eq!(preferred_gpu_device(&[Separate, Integrated]), 0);
+        // Only built-in graphics: use it (Aural only offers Vulkan with a separate card,
+        // but whisper.cpp's own default is kept).
+        assert_eq!(preferred_gpu_device(&[Integrated]), 0);
+        assert_eq!(preferred_gpu_device(&[]), 0);
     }
 
     #[test]

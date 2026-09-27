@@ -8,7 +8,7 @@
 use crate::Backend;
 use anyhow::{bail, Result};
 use aural_platform::gpu::AdapterMemory;
-use transcribe_rs::accel::{set_ort_accelerator, OrtAccelerator};
+use transcribe_rs::accel::{set_directml_device, set_ort_accelerator, OrtAccelerator};
 
 /// The ONNX Runtime device for a backend; ONNX models run on the processor or DirectML.
 pub fn accelerator(backend: Backend) -> Result<OrtAccelerator> {
@@ -19,10 +19,27 @@ pub fn accelerator(backend: Backend) -> Result<OrtAccelerator> {
     }
 }
 
+/// The DirectML device (DXGI adapter index) for the separate graphics card, if there is
+/// one. Hybrid laptops often list the built-in graphics as adapter 0, which is what
+/// DirectML uses by default.
+pub fn directml_device(adapters: &[AdapterMemory], card_luid: Option<u64>) -> Option<u32> {
+    let card = card_luid?;
+    adapters.iter().find(|a| a.luid == card).map(|a| a.index)
+}
+
 /// Set the device before loading a model (transcribe-rs reads it when it creates the
-/// model's sessions; one worker process runs one model at a time).
+/// model's sessions; one worker process runs one model at a time). DirectML is pointed
+/// at the separate graphics card when there is one.
 pub fn select(backend: Backend) -> Result<()> {
     set_ort_accelerator(accelerator(backend)?);
+    let device = match backend {
+        Backend::DirectMl => directml_device(
+            &aural_platform::gpu::process_gpu_memory_by_adapter(),
+            card_luid(),
+        ),
+        _ => None,
+    };
+    set_directml_device(device);
     Ok(())
 }
 
@@ -142,6 +159,19 @@ mod tests {
         ];
         let err = verify(Backend::DirectMl, &log, &used(500, 0), Some(RTX)).unwrap_err();
         assert!(err.to_string().contains("CPU"), "{err}");
+    }
+
+    #[test]
+    fn directml_is_pointed_at_the_separate_card() {
+        // Hybrid laptop where the built-in graphics is adapter 0.
+        let mut a = used(0, 0);
+        a[0].index = 1;
+        a[1].index = 0;
+        assert_eq!(directml_device(&a, Some(RTX)), Some(1));
+        // No separate card: leave ONNX Runtime's default.
+        assert_eq!(directml_device(&a, None), None);
+        // Card not in the list (shouldn't happen): default rather than a guess.
+        assert_eq!(directml_device(&a, Some(42)), None);
     }
 
     #[test]
