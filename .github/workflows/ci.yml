@@ -37,6 +37,8 @@ jobs:
 
       # Speech workers: built one at a time (their engine features are exclusive),
       # then staged next to the app together with DirectML and the MSVC runtime.
+      - run: cargo clippy -p aural-engines --features onnx --all-targets -- -D warnings
+      - run: cargo clippy -p aural-engines --features ggml --all-targets -- -D warnings
       - run: cargo clippy -p aural-stt-onnx --all-targets -- -D warnings
       - run: cargo clippy -p aural-stt-ggml --all-targets -- -D warnings  # CPU build; prepare-bundle below also compiles the Vulkan build
       - name: Vulkan SDK (GPU support for the Whisper worker)
