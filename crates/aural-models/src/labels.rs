@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 /// Slower than this after you stop speaking feels like waiting.
 pub const DICTATION_BUDGET_MS: u64 = 500;
-/// A model may use at most this share of free RAM…
+/// To be recommended, a model may use at most this share of free RAM…
 pub const RAM_HEADROOM: f64 = 0.5;
 /// …and of the graphics card's memory.
 pub const VRAM_HEADROOM: f64 = 0.7;
@@ -82,6 +82,7 @@ pub fn labels(
                         p50: m.p50_ms,
                         ram: result.ram_mb,
                         measured: result.measured,
+                        roomy: roomy(variant, result, hw),
                     });
                     if model.streaming && m.rtf <= LIVE_TEXT_MAX_RTF {
                         labels.push(Label::LiveText);
@@ -95,7 +96,9 @@ pub fn labels(
     let Some(best_wer) = suitable.iter().map(|c| c.wer).min_by(f64::total_cmp) else {
         return out;
     };
-    let margin = margin_95(best_wer, words);
+    // At least 3 errors' worth: with 0 errors the usual margin would be 0, and a lucky
+    // perfect score would shut out equally good models (rule of three).
+    let margin = margin_95(best_wer, words).max(3.0 / words.max(1) as f64);
     // Faster first, then smaller.
     suitable.sort_by(|a, b| a.p50.cmp(&b.p50).then(a.ram.cmp(&b.ram)));
     let accurate: Vec<&Candidate> = suitable
@@ -104,12 +107,12 @@ pub fn labels(
         .collect();
     let fastest = suitable
         .iter()
-        .find(|c| c.wer <= best_wer * FASTEST_MAX_WER_RATIO);
+        .find(|c| c.wer <= (best_wer * FASTEST_MAX_WER_RATIO).max(best_wer + margin));
 
     let in_budget: Vec<&Candidate> = accurate
         .iter()
         .copied()
-        .filter(|c| c.p50 <= DICTATION_BUDGET_MS)
+        .filter(|c| c.p50 <= DICTATION_BUDGET_MS && c.roomy)
         .collect();
     let recommended = pick_recommended(&in_budget, margin).or(fastest);
 
@@ -135,6 +138,18 @@ struct Candidate {
     p50: u64,
     ram: u64,
     measured: bool,
+    /// Leaves enough memory free to be recommended.
+    roomy: bool,
+}
+
+/// At most half the free memory and 70% of the graphics card's.
+fn roomy(v: &Variant, r: &VariantResult, hw: &HardwareProfile) -> bool {
+    let ram_ok = r.ram_mb.max(v.min_ram_mb) as f64 <= hw.free_ram_mb as f64 * RAM_HEADROOM;
+    let vram_ok = v.backend == Backend::Cpu
+        || primary_discrete(&hw.gpus).is_some_and(|g| {
+            r.vram_mb.unwrap_or(0).max(v.min_vram_mb) as f64 <= g.vram_mb as f64 * VRAM_HEADROOM
+        });
+    ram_ok && vram_ok
 }
 
 /// Measured results are trusted over estimates: an estimate wins only when it is more
@@ -172,13 +187,14 @@ fn unsuitable(v: &Variant, r: &VariantResult, hw: &HardwareProfile) -> Option<Re
     if let Some(detail) = unstable_detail(r) {
         return Some(Reason::Unstable { detail });
     }
+    // Won't fit at all. (Headroom only decides whether it can be recommended.)
     let need_ram = r.ram_mb.max(v.min_ram_mb);
-    if need_ram as f64 > hw.free_ram_mb as f64 * RAM_HEADROOM {
+    if need_ram > hw.free_ram_mb {
         return Some(Reason::NotEnoughMemory { need_mb: need_ram });
     }
     if let Some(gpu) = gpu.filter(|_| on_gpu) {
         let need_vram = r.vram_mb.unwrap_or(0).max(v.min_vram_mb);
-        if need_vram as f64 > gpu.vram_mb as f64 * VRAM_HEADROOM {
+        if need_vram > gpu.vram_mb {
             return Some(Reason::NotEnoughGpuMemory { need_mb: need_vram });
         }
     }
@@ -306,6 +322,7 @@ mod tests {
                 min_vram_mb: self.vram,
                 reference: Some(Reference {
                     wer: self.wer,
+                    clips_wer: None,
                     p50_ms: self.p50,
                     rtf: self.rtf,
                     load_ms: 1_000,
@@ -417,7 +434,8 @@ mod tests {
     }
 
     fn four_core_4gb() -> (HardwareProfile, Vec<Row>) {
-        let hw = hw(4_000, 1_500, 4, vec![]);
+        // 700 MB free: Parakeet (861 MB) doesn't fit at all.
+        let hw = hw(4_000, 700, 4, vec![]);
         let rows = vec![
             r(PK, Backend::Cpu, 0.0251, 900, 0.17, 861).row(),
             r(SMALL, Backend::Cpu, 0.0313, 3_500, 0.7, 562).row(),
@@ -540,6 +558,48 @@ mod tests {
         ];
         let l = labels(&rows, &hw, WORDS);
         assert_eq!(holder(&l, &Label::Recommended), [id(TURBO, "cpu")]);
+    }
+
+    #[test]
+    fn memory_headroom_only_decides_recommended_not_whether_it_works() {
+        // 3 GB needed with 4 GB free: fits, so it works here, but it is too tight to be
+        // recommended when a lighter model is as good.
+        let hw = hw(8_000, 4_000, 8, vec![]);
+        let rows = vec![
+            r(TURBO, Backend::Cpu, 0.0232, 300, 0.06, 3_000).row(),
+            r(PK, Backend::Cpu, 0.0251, 350, 0.06, 861).row(),
+        ];
+        let l = labels(&rows, &hw, WORDS);
+        assert!(
+            !l[&id(TURBO, "cpu")]
+                .iter()
+                .any(|x| matches!(x, Label::WontWorkWell { .. })),
+            "{l:?}"
+        );
+        assert_eq!(holder(&l, &Label::Recommended), [id(PK, "cpu")]);
+        // More than is free: won't work.
+        let rows = vec![r(TURBO, Backend::Cpu, 0.0232, 300, 0.06, 4_500).row()];
+        let l = labels(&rows, &hw, WORDS);
+        assert_eq!(
+            l[&id(TURBO, "cpu")],
+            [Label::WontWorkWell {
+                reason: Reason::NotEnoughMemory { need_mb: 4_500 }
+            }]
+        );
+    }
+
+    #[test]
+    fn a_perfect_score_does_not_shut_out_close_variants() {
+        // 0 errors vs 2 errors in 396 words is within chance; the faster one wins.
+        let hw = hw(16_000, 8_000, 8, vec![]);
+        let rows = vec![
+            r(PK, Backend::Cpu, 0.0, 687, 0.1, 861).row(),
+            r(SMALL, Backend::Cpu, 2.0 / 396.0, 352, 0.05, 562).row(),
+        ];
+        let l = labels(&rows, &hw, 396);
+        assert_eq!(holder(&l, &Label::Recommended), [id(SMALL, "cpu")]);
+        assert_eq!(holder(&l, &Label::MostAccurate), [id(SMALL, "cpu")]);
+        assert_eq!(holder(&l, &Label::Fastest), [id(SMALL, "cpu")]);
     }
 
     #[test]

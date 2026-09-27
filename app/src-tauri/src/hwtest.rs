@@ -497,7 +497,13 @@ pub fn measure_download(app: &Arc<App>, entry: &ModelEntry) {
 /// Current results and labels for the Models page.
 pub fn evaluation(app: &App) -> Evaluation {
     let words = clips(app).map_or(0, clip_words);
-    evaluate(&app.catalog, &lock(&app.hwtest.results), &app.hw, words)
+    // Memory limits use what is free now, not what was free when Aural started.
+    let mut hw = app.hw.clone();
+    let free = aural_models::recommend::free_ram_mb();
+    if free > 0 {
+        hw.free_ram_mb = free;
+    }
+    evaluate(&app.catalog, &lock(&app.hwtest.results), &hw, words)
 }
 
 fn clip_words(clips: &[Clip]) -> usize {
@@ -924,9 +930,11 @@ mod tests {
             .results
             .iter()
             .any(|r| r.variant == "moonshine-base-int8@cpu" && !r.measured));
-        assert_eq!(
-            e.labels[PK_CPU],
-            [Label::Recommended, Label::MostAccurate, Label::Fastest]
+        // Measured beats the (equally accurate, slightly faster) Parakeet v3 estimate.
+        assert!(
+            e.labels[PK_CPU].contains(&Label::Recommended),
+            "{:?}",
+            e.labels
         );
     }
 
@@ -937,6 +945,7 @@ mod tests {
         let mut c = catalog_with_directml();
         let reference = |p50_ms: u64| aural_models::catalog::Reference {
             wer: 0.02,
+            clips_wer: None,
             p50_ms,
             rtf: 0.05,
             load_ms: 2_000,

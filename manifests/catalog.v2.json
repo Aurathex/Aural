@@ -57,7 +57,8 @@
             "rtf": 0.051,
             "load_ms": 1805,
             "ram_mb": 863,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0051
           }
         },
         {
@@ -70,7 +71,8 @@
             "rtf": 0.115,
             "load_ms": 2967,
             "ram_mb": 756,
-            "vram_mb": 1292
+            "vram_mb": 1292,
+            "clips_wer": 0.0051
           }
         }
       ]
@@ -155,7 +157,8 @@
             "rtf": 0.05,
             "load_ms": 1820,
             "ram_mb": 870,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0051
           }
         },
         {
@@ -168,7 +171,8 @@
             "rtf": 0.118,
             "load_ms": 3017,
             "ram_mb": 756,
-            "vram_mb": 1333
+            "vram_mb": 1333,
+            "clips_wer": 0.0025
           }
         }
       ]
@@ -229,7 +233,8 @@
             "rtf": 0.063,
             "load_ms": 931,
             "ram_mb": 284,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0227
           }
         }
       ]
@@ -272,7 +277,8 @@
             "rtf": 2.898,
             "load_ms": 1348,
             "ram_mb": 964,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0051
           }
         },
         {
@@ -285,7 +291,8 @@
             "rtf": 0.056,
             "load_ms": 2495,
             "ram_mb": 614,
-            "vram_mb": 1319
+            "vram_mb": 1319,
+            "clips_wer": 0.0051
           }
         }
       ]
@@ -328,7 +335,8 @@
             "rtf": 2.517,
             "load_ms": 4707,
             "ram_mb": 1845,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0152
           }
         },
         {
@@ -341,7 +349,8 @@
             "rtf": 0.054,
             "load_ms": 5505,
             "ram_mb": 1099,
-            "vram_mb": 2197
+            "vram_mb": 2197,
+            "clips_wer": 0.0152
           }
         }
       ]
@@ -384,7 +393,8 @@
             "rtf": 0.412,
             "load_ms": 711,
             "ram_mb": 563,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0253
           }
         },
         {
@@ -397,7 +407,8 @@
             "rtf": 0.025,
             "load_ms": 692,
             "ram_mb": 355,
-            "vram_mb": 908
+            "vram_mb": 908,
+            "clips_wer": 0.0253
           }
         }
       ]
@@ -440,7 +451,8 @@
             "rtf": 0.122,
             "load_ms": 223,
             "ram_mb": 274,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0253
           }
         },
         {
@@ -453,7 +465,8 @@
             "rtf": 0.013,
             "load_ms": 460,
             "ram_mb": 182,
-            "vram_mb": 611
+            "vram_mb": 611,
+            "clips_wer": 0.0253
           }
         }
       ]
@@ -496,7 +509,8 @@
             "rtf": 0.063,
             "load_ms": 179,
             "ram_mb": 193,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0404
           }
         },
         {
@@ -509,7 +523,8 @@
             "rtf": 0.01,
             "load_ms": 381,
             "ram_mb": 180,
-            "vram_mb": 270
+            "vram_mb": 270,
+            "clips_wer": 0.0379
           }
         }
       ]
@@ -570,7 +585,8 @@
             "rtf": 0.045,
             "load_ms": 775,
             "ram_mb": 191,
-            "vram_mb": 0
+            "vram_mb": 0,
+            "clips_wer": 0.0328
           }
         }
       ]

@@ -56,6 +56,11 @@ impl HardwareProfile {
     }
 }
 
+/// Free memory right now, in MB (labels use it; it changes all the time).
+pub fn free_ram_mb() -> u64 {
+    ram_mb().1
+}
+
 #[cfg(windows)]
 fn gpus() -> Vec<GpuInfo> {
     aural_platform::gpu::adapters()

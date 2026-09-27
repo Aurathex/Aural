@@ -40,7 +40,7 @@ pub fn estimate(
     Some(VariantResult {
         variant: model.variant_id(v.backend),
         metrics: Some(RunMetrics {
-            wer: reference.wer,
+            wer: reference.clips_wer.unwrap_or(reference.wer),
             // Accuracy comes from the reference run, not from this PC's clips.
             words: 0,
             p50_ms: p50,
@@ -72,6 +72,7 @@ mod tests {
             min_vram_mb: if backend == Backend::Cpu { 0 } else { 1_000 },
             reference: Some(Reference {
                 wer: 0.03,
+                clips_wer: None,
                 p50_ms: p50,
                 rtf: 0.1,
                 load_ms: 900,
@@ -110,6 +111,23 @@ mod tests {
         assert_eq!(r.ram_mb, 1_200);
         assert_eq!(r.vram_mb, Some(960));
         assert_eq!(r.stability, Stability::Stable);
+    }
+
+    #[test]
+    fn accuracy_comes_from_the_built_in_clips_when_known() {
+        // Measured results use the built-in clips, so estimates must too, or the two
+        // can't be compared (LibriSpeech-100 is harder: 2.5% vs 0.5% for Parakeet).
+        let m = entry("whisper-small.en-q8", Engine::Whisper, false);
+        let mut v = variant(Backend::Cpu, 400);
+        v.reference.as_mut().unwrap().clips_wer = Some(0.0101);
+        let r = estimate(
+            &m,
+            &v,
+            &[cal(Backend::Cpu, 100, 100)],
+            &HardwareProfile::default(),
+        )
+        .unwrap();
+        assert_eq!(r.metrics.unwrap().wer, 0.0101);
     }
 
     #[test]

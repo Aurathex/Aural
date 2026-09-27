@@ -61,7 +61,12 @@ pub struct Variant {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Reference {
+    /// Pooled WER on LibriSpeech-100 (the benchmark corpus).
     pub wer: f64,
+    /// WER on the built-in clips the hardware test measures with, so estimates and
+    /// measurements on this PC are on the same scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clips_wer: Option<f64>,
     pub p50_ms: u64,
     pub rtf: f64,
     pub load_ms: u64,
