@@ -24,7 +24,7 @@
     <h2>Privacy</h2>
     <div class="rows">
       <div class="row"><div class="text"><div class="title">Your voice stays on this PC</div><div class="desc">Speech is transcribed locally. Audio is kept in memory only while you dictate and is never saved or uploaded.</div></div></div>
-      <div class="row"><div class="text"><div class="title">No account, no telemetry</div><div class="desc">Aural does not collect usage data. It only uses the network when you download a model.</div></div></div>
+      <div class="row"><div class="text"><div class="title">No account, no telemetry</div><div class="desc">Aural sends no usage data anywhere. Your history and statistics stay on this PC. It only uses the network when you download a model.</div></div></div>
       <div class="row"><div class="text"><div class="title">Clipboard</div><div class="desc">Dictated text is pasted through the clipboard, kept out of Windows clipboard history, and your previous clipboard text is put back.</div></div></div>
       <div class="row">
         <div class="text"><div class="title">Data folder</div><div class="desc num">{app.data_dir}</div></div>

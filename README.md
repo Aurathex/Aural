@@ -9,6 +9,10 @@ transcribed **on your own PC** and typed into whatever app you're using.
 - Speech models are downloaded from inside the app, never bundled.
 - Made for English. (Parakeet v3, one of the optional models, also understands 24 other
   European languages.)
+- Words appear above the pill as you speak, and the final text is typed when you finish.
+- Optional tidy-up on your PC (light rules, or a writing helper model you choose to
+  download), a personal dictionary, settings per app, and a searchable history with
+  statistics that never leave your PC.
 
 ## Download Aural
 
@@ -62,7 +66,7 @@ Aural's first releases are **not code-signed**. What that means for you:
    on the same release page:
 
    ```powershell
-   Get-FileHash .\Aural_0.2.0_x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\Aural_0.3.0_x64-setup.exe -Algorithm SHA256
    ```
 
 3. **Build provenance.** Each release installer is built by the repository's public
@@ -71,7 +75,7 @@ Aural's first releases are **not code-signed**. What that means for you:
    what that workflow built, and from which commit:
 
    ```powershell
-   gh attestation verify .\Aural_0.2.0_x64-setup.exe --repo Aurathex/Aural
+   gh attestation verify .\Aural_0.3.0_x64-setup.exe --repo Aurathex/Aural
    ```
 
 ### Inspect it yourself, or ask an AI coding agent to
@@ -90,7 +94,7 @@ Worth looking at:
 | Keyboard hook, clipboard and text insertion | `crates/aural-platform/src/` |
 | Third-party licenses | `THIRD_PARTY_NOTICES.md` |
 
-A prompt you could use: *"Review github.com/Aurathex/Aural at tag v0.2.0. Check what the
+A prompt you could use: *"Review github.com/Aurathex/Aural at tag v0.3.0. Check what the
 installer and uninstaller change on my PC, every network request the app can make,
 where speech models are downloaded from and how they are verified, how the keyboard
 hook and clipboard are used, and whether the release workflow could ship anything other

@@ -59,6 +59,10 @@ own license (LICENSE.md) does not change their terms.
 
 @@MODELS@@
 
+## Writing helper models for AI tidy-up (downloaded on request, never bundled)
+
+@@TEXTMODELS@@
+
 ## JavaScript packages compiled into the user interface
 
 '@
@@ -66,6 +70,9 @@ own license (LICENSE.md) does not change their terms.
     $catalog = Get-Content (Join-Path $root 'manifests\catalog.v2.json') -Raw | ConvertFrom-Json
     $models = ($catalog.models | ForEach-Object { "- **$($_.name)** — $($_.license.attribution) License: $($_.license.url)" }) -join "`n"
     $header = $header.Replace('@@MODELS@@', $models)
+    $text = Get-Content (Join-Path $root 'manifests\text-models.json') -Raw | ConvertFrom-Json
+    $textModels = ($text.models | ForEach-Object { "- **$($_.name)** — $($_.license.attribution) License: $($_.license.url)" }) -join "`n"
+    $header = $header.Replace('@@TEXTMODELS@@', $textModels)
     $native = foreach ($pair in @(@('ONNX Runtime', 'licenses\onnxruntime\LICENSE'), @('whisper.cpp / ggml', 'licenses\ggml\LICENSE'))) {
         $text = (Get-Content (Join-Path $root $pair[1]) -Raw).Trim()
         "### $($pair[0])`n`n``````text`n$text`n```````n"
