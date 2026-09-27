@@ -63,7 +63,11 @@ fn worker_runs_parakeet_on_directml() {
         Duration::from_secs(120),
     )
     .unwrap();
-    assert_eq!(c.backend(), Some("directml"));
+    assert!(
+        c.backend().unwrap_or_default().starts_with("directml:"),
+        "{:?}",
+        c.backend()
+    );
     let stats = c.stats(Duration::from_secs(5)).unwrap();
     eprintln!("worker memory on DirectML: {stats:?}");
     assert!(stats.gpu_memory_mb.unwrap_or(0) > 0, "{stats:?}");

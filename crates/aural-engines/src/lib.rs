@@ -98,6 +98,13 @@ pub fn build_engine(
 /// `aural-bench`): fraction of reference words missing from the hypothesis.
 #[cfg(test)]
 pub(crate) mod test_support {
+    /// ONNX Runtime's device choice is process-wide (transcribe-rs), so tests that load
+    /// ONNX models take turns; in the app each worker process loads one model at a time.
+    pub fn ort_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     fn words(s: &str) -> Vec<String> {
         s.to_lowercase()
             .split(|c: char| !c.is_alphanumeric() && c != '\'')

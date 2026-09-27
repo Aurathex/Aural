@@ -38,7 +38,8 @@ pub fn load(model_dir: &Path, backend: Backend, _threads: usize) -> Result<Box<d
     let backend_used = crate::onnx_accel::verify(
         backend,
         &crate::log_capture::take(),
-        aural_platform::gpu::process_gpu_memory_mb(),
+        &aural_platform::gpu::process_gpu_memory_by_adapter(),
+        crate::onnx_accel::card_luid(),
     )?;
     let name = model_dir
         .file_name()
@@ -100,6 +101,7 @@ mod tests {
     #[test]
     #[ignore]
     fn transcribes_real_speech() {
+        let _ort = crate::test_support::ort_lock();
         let dir = std::env::var("AURAL_TEST_PARAKEET_DIR").expect("AURAL_TEST_PARAKEET_DIR");
         let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
         let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
@@ -116,13 +118,18 @@ mod tests {
     #[test]
     #[ignore]
     fn parakeet_runs_on_directml() {
+        let _ort = crate::test_support::ort_lock();
         let dir = std::env::var("AURAL_TEST_PARAKEET_DIR").expect("AURAL_TEST_PARAKEET_DIR");
         let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
         let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
         let t0 = std::time::Instant::now();
         let mut t = load(std::path::Path::new(&dir), Backend::DirectMl, 4).unwrap();
         let load_ms = t0.elapsed().as_millis();
-        assert_eq!(t.backend_used(), "directml");
+        assert!(
+            t.backend_used().starts_with("directml:"),
+            "{}",
+            t.backend_used()
+        );
         let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
         let t1 = std::time::Instant::now();
         let text = t.transcribe(&pcm).unwrap();

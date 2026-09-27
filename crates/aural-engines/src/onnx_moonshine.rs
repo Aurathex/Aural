@@ -95,7 +95,8 @@ pub fn load(dir: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Tran
     let backend_used = onnx_accel::verify(
         backend,
         &crate::log_capture::take(),
-        aural_platform::gpu::process_gpu_memory_mb(),
+        &aural_platform::gpu::process_gpu_memory_by_adapter(),
+        crate::onnx_accel::card_luid(),
     )?;
     Ok(Box::new(Moonshine {
         model,
@@ -175,6 +176,7 @@ mod tests {
     #[test]
     #[ignore]
     fn moonshine_transcribes_real_speech() {
+        let _ort = crate::test_support::ort_lock();
         use crate::test_support::missed_words;
         let dir = std::env::var("AURAL_TEST_MOONSHINE_DIR").expect("AURAL_TEST_MOONSHINE_DIR");
         let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");

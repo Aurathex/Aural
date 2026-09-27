@@ -69,11 +69,21 @@ pub fn driver_version(umd: i64) -> String {
 }
 
 #[cfg(windows)]
-pub use win::{adapters, process_gpu_memory_mb};
+pub use win::{adapters, process_gpu_memory_by_adapter, process_gpu_memory_mb};
+
+/// One adapter's graphics memory in use by this process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterMemory {
+    /// DXGI enumeration index (DirectML's device id).
+    pub index: u32,
+    pub name: String,
+    pub luid: u64,
+    pub used_mb: u64,
+}
 
 #[cfg(windows)]
 mod win {
-    use super::{driver_version, is_integrated, same_card, GpuInfo, Vendor};
+    use super::{driver_version, is_integrated, same_card, AdapterMemory, GpuInfo, Vendor};
     use windows::core::Interface;
     use windows::Win32::Graphics::Dxgi::{
         CreateDXGIFactory1, IDXGIAdapter3, IDXGIDevice, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE,
@@ -128,16 +138,18 @@ mod win {
         out
     }
 
-    /// Megabytes of graphics-card memory this process currently uses, summed over the
-    /// real (non-software) adapters. `None` if Windows can't report it.
-    pub fn process_gpu_memory_mb() -> Option<u64> {
+    /// Graphics memory this process uses on each real (non-software) adapter, in DXGI
+    /// enumeration order (the index DirectML's device ids refer to).
+    pub fn process_gpu_memory_by_adapter() -> Vec<AdapterMemory> {
+        let mut out = Vec::new();
         // SAFETY: plain DXGI queries on interfaces we own; no pointers escape.
         unsafe {
-            let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
-            let mut total: u64 = 0;
-            let mut answered = false;
+            let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() else {
+                return out;
+            };
             let mut i = 0;
             while let Ok(adapter) = factory.EnumAdapters1(i) {
+                let index = i;
                 i += 1;
                 let Ok(desc) = adapter.GetDesc1() else {
                     continue;
@@ -153,12 +165,27 @@ mod win {
                     .QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info)
                     .is_ok()
                 {
-                    total += info.CurrentUsage;
-                    answered = true;
+                    let len = desc.Description.iter().position(|&c| c == 0).unwrap_or(128);
+                    out.push(AdapterMemory {
+                        index,
+                        name: String::from_utf16_lossy(&desc.Description[..len])
+                            .trim()
+                            .to_owned(),
+                        luid: ((desc.AdapterLuid.HighPart as u32 as u64) << 32)
+                            | desc.AdapterLuid.LowPart as u64,
+                        used_mb: info.CurrentUsage / MB,
+                    });
                 }
             }
-            answered.then_some(total / MB)
         }
+        out
+    }
+
+    /// Megabytes of graphics-card memory this process currently uses, summed over the
+    /// real (non-software) adapters. `None` if Windows can't report it.
+    pub fn process_gpu_memory_mb() -> Option<u64> {
+        let per = process_gpu_memory_by_adapter();
+        (!per.is_empty()).then(|| per.iter().map(|a| a.used_mb).sum())
     }
 }
 
