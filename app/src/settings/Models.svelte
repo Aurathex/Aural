@@ -29,7 +29,7 @@
       : "";
     if (e.state === "ready") return `Ready · ${a.models.find((m) => m.id === e.model)?.name ?? e.label} ${where}`;
     if (e.state === "loading") return "Getting the model ready…";
-    if (e.state === "error") return `The model couldn't start: ${e.message}`;
+    if (e.state === "error") return "The model couldn't start. Choose another one below, or check your PC again.";
     return "No model yet. Download one to start dictating.";
   }
 </script>
@@ -42,6 +42,9 @@
     <span class="dot" class:ready={app.engine.state === "ready"} class:busy={app.engine.state === "loading"}></span>
     <span>{engineLine(app)}</span>
     <span class="hw">{hardwareText(app.hardware)}</span>
+    {#if app.engine.state === "error"}
+      <details class="tech"><summary>Technical details</summary>{app.engine.message}</details>
+    {/if}
   </div>
 
   <HardwareTest {app} {update} />
@@ -69,6 +72,7 @@
     border-radius: var(--radius);
   }
   .summary .hw { flex-basis: 100%; padding-left: 18px; color: var(--ink-3); font-size: 12px; }
+  .summary details.tech { flex-basis: 100%; padding-left: 18px; color: var(--ink-3); font-size: 12px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--ink-3); flex: none; }
   .dot.ready { background: var(--ink); border-color: var(--ink); }
   .dot.busy { border-color: var(--ink); animation: pulse 1s ease-in-out infinite; }

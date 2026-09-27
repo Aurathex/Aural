@@ -147,7 +147,12 @@ pub fn usable_variant(
             .map(|m| m.variant_id(Backend::Cpu))
     };
     if let Some(c) = chosen {
-        if catalog.variant(c).is_some_and(|(m, _)| installed(&m.id)) {
+        // A graphics-card choice needs a separate card to still be there.
+        let card = aural_platform::gpu::primary_discrete(&hw.gpus).is_some();
+        if catalog
+            .variant(c)
+            .is_some_and(|(m, v)| installed(&m.id) && (v.backend == Backend::Cpu || card))
+        {
             return Some(c.to_owned());
         }
         if let Some((model, _)) = split_variant_id(c).filter(|(m, _)| installed(m)) {
@@ -447,6 +452,38 @@ mod tests {
             ]
         );
         assert_eq!((pk.runtime, pk.precision.as_str()), (Runtime::Onnx, "int8"));
+    }
+
+    #[test]
+    fn a_graphics_card_choice_falls_back_to_the_processor_when_the_card_is_gone() {
+        // e.g. an external graphics card unplugged, or settings copied to another PC.
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = Catalog::builtin();
+        fake_install(&store, c.get("parakeet-tdt-0.6b-v2-int8").unwrap());
+        assert_eq!(
+            usable_variant(&c, &store, Some("parakeet-tdt-0.6b-v2-int8@directml"), &HW).as_deref(),
+            Some("parakeet-tdt-0.6b-v2-int8@cpu")
+        );
+        let mut with_card = HW;
+        with_card.gpus = vec![aural_platform::gpu::GpuInfo {
+            name: "NVIDIA GeForce RTX 4070 Laptop GPU".into(),
+            vendor: aural_platform::gpu::Vendor::Nvidia,
+            vram_mb: 7_948,
+            integrated: false,
+            driver: "1".into(),
+            luid: 1,
+        }];
+        assert_eq!(
+            usable_variant(
+                &c,
+                &store,
+                Some("parakeet-tdt-0.6b-v2-int8@directml"),
+                &with_card
+            )
+            .as_deref(),
+            Some("parakeet-tdt-0.6b-v2-int8@directml")
+        );
     }
 
     #[test]

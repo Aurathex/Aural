@@ -172,7 +172,7 @@ mod tests {
     }
 
     /// Real Moonshine model (AURAL_TEST_MOONSHINE_DIR) on real speech, on the processor
-    /// and on the graphics card. Run with `--features onnx -- --ignored`.
+    /// Run with `--features onnx -- --ignored`.
     #[test]
     #[ignore]
     fn moonshine_transcribes_real_speech() {
@@ -182,18 +182,17 @@ mod tests {
         let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
         let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
         let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
-        for backend in [Backend::Cpu] {
-            let t0 = std::time::Instant::now();
-            let mut t = load(std::path::Path::new(&dir), backend, 4).unwrap();
-            let load_ms = t0.elapsed().as_millis();
-            let t1 = std::time::Instant::now();
-            let text = t.transcribe(&pcm).unwrap();
-            eprintln!(
-                "{}: load {load_ms} ms, transcribe {} ms: {text}",
-                t.backend_used(),
-                t1.elapsed().as_millis()
-            );
-            assert!(missed_words(&reference, &text) < 0.3, "{backend:?}: {text}");
-        }
+        // Processor only: it produces garbage on DirectML (see load).
+        let t0 = std::time::Instant::now();
+        let mut t = load(std::path::Path::new(&dir), Backend::Cpu, 4).unwrap();
+        let load_ms = t0.elapsed().as_millis();
+        let t1 = std::time::Instant::now();
+        let text = t.transcribe(&pcm).unwrap();
+        eprintln!(
+            "{}: load {load_ms} ms, transcribe {} ms: {text}",
+            t.backend_used(),
+            t1.elapsed().as_millis()
+        );
+        assert!(missed_words(&reference, &text) < 0.3, "{text}");
     }
 }

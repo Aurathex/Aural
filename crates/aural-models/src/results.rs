@@ -51,17 +51,17 @@ impl ResultsStore {
         };
         match serde_json::from_str::<ResultsFile>(&text) {
             Ok(file) => store.file = file,
-            Err(parse_err) => {
+            Err(_) => {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs());
                 let backup = path.with_file_name(format!("hardware.corrupt-{stamp}.json"));
                 std::fs::rename(path, &backup)
                     .with_context(|| format!("backing up corrupt {}", path.display()))?;
-                store.notice = Some(format!(
-                    "Saved hardware test results were unreadable ({parse_err}); the test will run again. The old file was kept as {}.",
-                    backup.display()
-                ));
+                store.notice = Some(
+                    "Aural couldn't read its saved hardware check, so it will check your PC again."
+                        .into(),
+                );
             }
         }
         Ok(store)
@@ -240,7 +240,12 @@ mod tests {
         std::fs::write(&path, "{ not json").unwrap();
         let s = ResultsStore::load(&path).unwrap();
         assert!(s.results().next().is_none());
-        assert!(s.notice.is_some());
+        let notice = s.notice.clone().unwrap();
+        // Plain words for the user: no parser message or file path.
+        assert!(
+            !notice.contains("expected") && !notice.contains(".json"),
+            "{notice}"
+        );
         assert!(!path.exists());
         let backups: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()

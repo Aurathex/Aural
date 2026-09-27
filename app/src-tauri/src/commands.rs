@@ -144,15 +144,22 @@ pub fn download_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> 
                     .and_then(|a| app2.catalog.get(a))
                     .is_some_and(|m| app2.store.is_installed(m));
                 if !active_ok {
+                    // The variant that suits this PC best, not always the processor.
+                    let e = crate::hwtest::evaluation(&app2);
                     s.stt.active_model = Some(entry.id.clone());
-                    s.stt.active_variant = Some(entry.variant_id(aural_engines::Backend::Cpu));
+                    s.stt.active_variant = Some(crate::hwtest::variant_to_activate(
+                        &entry, &e.labels, &e.results,
+                    ));
                     if app2.save_settings(s).is_ok() {
                         app2.reload_engine();
                     }
                 }
             }
             Err(DownloadError::Cancelled) => {}
-            Err(e) => app2.set_notice(format!("{} could not be downloaded: {e}", entry.name)),
+            Err(_) => app2.set_notice(format!(
+                "{} couldn't be downloaded. Check your internet connection and free disk space, then try again.",
+                entry.name
+            )),
         }
         app2.broadcast();
     });

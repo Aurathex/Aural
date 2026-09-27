@@ -174,9 +174,93 @@ pub fn active_after_test(
     }
 }
 
+/// A model that couldn't start on the graphics card switches to the processor: the same
+/// model there if it can, else the recommended installed variant on the processor, else
+/// any installed one. Returns the variant and the notice for the user. `None` for a
+/// processor failure (nothing to fall back to) or when nothing else is installed.
+pub fn fallback_after_load_failure(
+    failed: &str,
+    labels: &BTreeMap<String, Vec<Label>>,
+    catalog: &Catalog,
+    installed: &dyn Fn(&str) -> bool,
+) -> Option<(String, String)> {
+    let (model, backend) = aural_models::catalog::split_variant_id(failed)?;
+    if backend == Backend::Cpu {
+        return None;
+    }
+    let cpu_ok = |id: &str| {
+        installed(id)
+            && catalog
+                .variant(id)
+                .is_some_and(|(_, v)| v.backend == Backend::Cpu)
+    };
+    let same = catalog
+        .get(model)
+        .map(|m| m.variant_id(Backend::Cpu))
+        .filter(|id| cpu_ok(id));
+    let recommended = labels
+        .iter()
+        .find(|(id, ls)| ls.contains(&Label::Recommended) && cpu_ok(id))
+        .map(|(id, _)| id.clone());
+    let any = || {
+        catalog
+            .models
+            .iter()
+            .filter(|m| !m.probe)
+            .map(|m| m.variant_id(Backend::Cpu))
+            .find(|id| cpu_ok(id))
+    };
+    let to = same.or(recommended).or_else(any)?;
+    Some((
+        to,
+        "Your graphics card couldn't start this model, so Aural is using your processor instead. You can keep dictating."
+            .into(),
+    ))
+}
+
+/// Which variant of a freshly downloaded model to use: the one labelled Recommended,
+/// else the fastest one that isn't marked "won't work well here", else the processor.
+pub fn variant_to_activate(
+    entry: &ModelEntry,
+    labels: &BTreeMap<String, Vec<Label>>,
+    results: &[VariantResult],
+) -> String {
+    let ids: Vec<String> = entry
+        .variants
+        .iter()
+        .map(|v| entry.variant_id(v.backend))
+        .collect();
+    let bad = |id: &str| {
+        labels
+            .get(id)
+            .is_some_and(|ls| ls.iter().any(|l| matches!(l, Label::WontWorkWell { .. })))
+    };
+    if let Some(r) = ids.iter().find(|id| {
+        labels
+            .get(*id)
+            .is_some_and(|ls| ls.contains(&Label::Recommended))
+    }) {
+        return r.clone();
+    }
+    ids.iter()
+        .filter(|id| !bad(id))
+        .filter_map(|id| {
+            let p50 = results
+                .iter()
+                .find(|r| r.variant == **id)?
+                .metrics
+                .as_ref()?
+                .p50_ms;
+            Some((p50, id))
+        })
+        .min()
+        .map(|(_, id)| id.clone())
+        .unwrap_or_else(|| entry.variant_id(Backend::Cpu))
+}
+
 /// Backends to measure a downloaded model on: always the processor, plus its graphics
 /// variants when the PC has a separate graphics card. Measuring is what proves a
-/// backend works; a failure shows up as "didn't work on this PC's graphics card".
+/// backend works; the graphics card goes first. A failure shows up as "didn't work on this PC's graphics card".
 pub fn backends_to_measure(entry: &ModelEntry, hw: &HardwareProfile) -> Vec<Backend> {
     let gpu = aural_platform::gpu::primary_discrete(&hw.gpus).is_some();
     entry
@@ -184,6 +268,9 @@ pub fn backends_to_measure(entry: &ModelEntry, hw: &HardwareProfile) -> Vec<Back
         .iter()
         .map(|v| v.backend)
         .filter(|b| *b == Backend::Cpu || gpu)
+        // Graphics card first: quick to measure, and it decides whether the model is
+        // usable there before a possibly slow processor run.
+        .rev()
         .collect()
 }
 
@@ -266,6 +353,35 @@ enum Job {
     Measure(String),
 }
 
+/// Removes queued full checks (cancel), keeping measurements of new downloads. Returns
+/// whether any check was removed.
+fn drop_tests(jobs: &mut VecDeque<Job>) -> bool {
+    let before = jobs.len();
+    jobs.retain(|j| matches!(j, Job::Measure(_)));
+    jobs.len() != before
+}
+
+/// What a full check collects; it replaces the saved results only once the check has
+/// finished, so a cancelled check keeps the previous ones.
+#[derive(Debug, Default)]
+struct TestRun {
+    calibrations: Vec<Calibration>,
+    results: Vec<VariantResult>,
+}
+
+impl TestRun {
+    fn commit_if_complete(&self, store: &mut ResultsStore, hw: &HardwareProfile, complete: bool) {
+        if !complete {
+            return;
+        }
+        store.reset_for(hw);
+        store.set_calibrations(self.calibrations.clone());
+        for r in &self.results {
+            store.put(r.clone());
+        }
+    }
+}
+
 pub struct HwTest {
     pub results: Mutex<ResultsStore>,
     status: Mutex<HwTestStatus>,
@@ -335,7 +451,9 @@ pub fn spawn_runner(app: &Arc<App>) {
                         0,
                         1,
                     );
-                    measure(&app, &variant);
+                    if let Some(r) = measure(&app, &variant) {
+                        record(&app, r);
+                    }
                     set_step(&app, None, 0, 0);
                 }
             }
@@ -355,13 +473,12 @@ pub fn start(app: &Arc<App>, allow_probe_download: bool) {
 }
 
 pub fn cancel(app: &Arc<App>) {
-    let mut jobs = lock(&app.hwtest.jobs);
-    // A test that was queued but never started must not look like it is running.
-    if jobs.iter().any(|j| matches!(j, Job::FullTest { .. })) {
+    // Measurements of new downloads stay queued; a check that was queued but never
+    // started must not look like it is running.
+    let dropped = drop_tests(&mut lock(&app.hwtest.jobs));
+    if dropped {
         lock(&app.hwtest.status).running = false;
     }
-    jobs.clear();
-    drop(jobs);
     app.hwtest.cancel.store(true, Ordering::SeqCst);
 }
 
@@ -469,17 +586,18 @@ fn run_bench(app: &App, entry: &ModelEntry, backend: Backend, passes: usize) -> 
     )
 }
 
-fn measure(app: &App, variant: &str) {
-    let Some((entry, v)) = app.catalog.variant(variant) else {
-        return;
-    };
+/// Measures one installed variant; `None` if it isn't installed or was cancelled.
+fn measure(app: &App, variant: &str) -> Option<VariantResult> {
+    let (entry, v) = app.catalog.variant(variant)?;
     if !app.store.is_installed(entry) {
-        return;
+        return None;
     }
     let r = run_bench(app, entry, v.backend, MEASURE_PASSES);
-    if r.error.as_deref() == Some("cancelled") {
-        return;
-    }
+    (r.error.as_deref() != Some("cancelled")).then_some(r)
+}
+
+/// Stores a result measured outside a full check (after a download, or a failed load).
+fn record(app: &App, r: VariantResult) {
     let mut results = lock(&app.hwtest.results);
     results.adopt(&app.hw);
     results.put(r);
@@ -488,12 +606,7 @@ fn measure(app: &App, variant: &str) {
 
 fn full_test(app: &Arc<App>, allow_probe_download: bool) {
     set_step(app, Some(HwStep::Detecting), 0, 0);
-    {
-        let mut results = lock(&app.hwtest.results);
-        results.reset_for(&app.hw);
-        let _ = results.save();
-    }
-    app.broadcast();
+    let mut run = TestRun::default();
 
     // Probes: two small models, one per runtime, to learn how fast this PC is.
     let probes: Vec<ModelEntry> = app
@@ -515,30 +628,24 @@ fn full_test(app: &Arc<App>, allow_probe_download: bool) {
             set_step(app, Some(HwStep::DownloadingProbes), i, missing.len());
             if let Err(e) = aural_models::download(p, &app.store, &app.hwtest.cancel, &mut |_| {}) {
                 if !matches!(e, aural_models::DownloadError::Cancelled) {
-                    app.set_notice(format!(
-                        "The hardware test couldn't download its small test models ({e}). Results will appear once you download a model."
-                    ));
+                    app.set_notice(
+                        "Aural couldn't download its small test models, so it can only compare models you download. Check your internet connection and try again.",
+                    );
                 }
             }
         }
     }
 
-    let mut calibrations = Vec::new();
     for p in probes.iter().filter(|p| app.store.is_installed(p)) {
         for b in backends_to_measure(p, &app.hw) {
             if cancelled(app) {
                 break;
             }
-            set_step(
-                app,
-                Some(HwStep::Calibrating { backend: b }),
-                calibrations.len(),
-                0,
-            );
+            set_step(app, Some(HwStep::Calibrating { backend: b }), 0, 0);
             let r = run_bench(app, p, b, CALIBRATE_PASSES);
             let reference = p.variant(b).and_then(|v| v.reference.as_ref());
             if let (Some(m), Some(re), None) = (r.metrics, reference, &r.error) {
-                calibrations.push(Calibration {
+                run.calibrations.push(Calibration {
                     runtime: p.runtime,
                     backend: b,
                     probe_p50_ms: m.p50_ms,
@@ -547,7 +654,6 @@ fn full_test(app: &Arc<App>, allow_probe_download: bool) {
             }
         }
     }
-    lock(&app.hwtest.results).set_calibrations(calibrations);
 
     // Models already downloaded get measured for real.
     let installed: Vec<String> = app
@@ -572,15 +678,62 @@ fn full_test(app: &Arc<App>, allow_probe_download: bool) {
             i,
             installed.len(),
         );
-        measure(app, v);
+        if let Some(r) = measure(app, v) {
+            run.results.push(r);
+        }
     }
 
     set_step(app, Some(HwStep::Estimating), 0, 0);
-    let _ = lock(&app.hwtest.results).save();
+    {
+        // A cancelled check keeps the previous results.
+        let mut results = lock(&app.hwtest.results);
+        run.commit_if_complete(&mut results, &app.hw, !cancelled(app));
+        let _ = results.save();
+    }
     lock(&app.hwtest.status).running = false;
     set_step(app, Some(HwStep::Done), 0, 0);
 }
 
+/// A model that failed to load on the graphics card: remember that it didn't work there,
+/// and move dictation to the processor so the user can keep going.
+pub fn after_load_failure(app: &Arc<App>, variant: &str, message: &str) {
+    record(
+        app,
+        VariantResult {
+            variant: variant.to_owned(),
+            metrics: None,
+            load_ms: 0,
+            ram_mb: 0,
+            vram_mb: None,
+            spread: 0.0,
+            passes: 0,
+            stability: Stability::Unstable {
+                reason: "could not be started".into(),
+            },
+            measured: true,
+            error: Some(message.to_owned()),
+        },
+    );
+    let e = evaluation(app);
+    let installed = |id: &str| {
+        app.catalog
+            .variant(id)
+            .is_some_and(|(m, _)| app.store.is_installed(m))
+    };
+    if let Some((to, notice)) =
+        fallback_after_load_failure(variant, &e.labels, &app.catalog, &installed)
+    {
+        let mut s = app.settings();
+        s.stt.active_model =
+            aural_models::catalog::split_variant_id(&to).map(|(m, _)| m.to_owned());
+        s.stt.active_variant = Some(to);
+        if app.save_settings(s).is_ok() {
+            app.set_notice(notice);
+            app.reload_engine();
+        }
+    }
+    app.broadcast();
+}
 /// Keeps the user's model unless it now won't work well here; then switches and says so.
 fn apply_active_policy(app: &Arc<App>) {
     let e = evaluation(app);
@@ -832,13 +985,132 @@ mod tests {
     }
 
     #[test]
+    fn a_graphics_card_that_fails_to_load_falls_back_to_the_processor() {
+        let c = catalog_with_directml();
+        let d = fallback_after_load_failure(PK_DML, &BTreeMap::new(), &c, &|_| true).unwrap();
+        assert_eq!(d.0, PK_CPU);
+        assert!(d.1.contains("graphics card"), "{}", d.1);
+        assert!(d.1.contains("processor"), "{}", d.1);
+        assert!(d.1.contains("keep dictating"), "{}", d.1);
+        for word in JARGON {
+            assert!(!d.1.contains(word), "{word} in: {}", d.1);
+        }
+        // The processor failing has no fallback here: that error is shown as it is.
+        assert!(fallback_after_load_failure(PK_CPU, &BTreeMap::new(), &c, &|_| true).is_none());
+        // Prefer the recommended processor variant when this model has none.
+        let labels = BTreeMap::from([(SMALL_CPU.to_string(), vec![Label::Recommended])]);
+        let turbo_vk = "whisper-large-v3-turbo-q5@vulkan";
+        let only_small = |id: &str| id.starts_with("whisper-small");
+        assert_eq!(
+            fallback_after_load_failure(turbo_vk, &labels, &c, &only_small).map(|d| d.0),
+            Some(SMALL_CPU.to_string())
+        );
+    }
+
+    #[test]
+    fn a_new_download_starts_on_its_best_variant_for_this_pc() {
+        let c = catalog_with_directml();
+        let pk = c.get("parakeet-tdt-0.6b-v2-int8").unwrap();
+        // Labelled Recommended wins.
+        let labels = BTreeMap::from([
+            (PK_DML.to_string(), vec![Label::Recommended]),
+            (PK_CPU.to_string(), vec![]),
+        ]);
+        assert_eq!(variant_to_activate(pk, &labels, &[]), PK_DML);
+        // Otherwise the fastest variant that isn't marked "won't work well".
+        let r = |v: &str, p50: u64| VariantResult {
+            variant: v.into(),
+            metrics: Some(aural_eval::metrics::RunMetrics {
+                wer: 0.02,
+                words: 0,
+                p50_ms: p50,
+                p95_ms: p50,
+                rtf: 0.1,
+            }),
+            load_ms: 1_000,
+            ram_mb: 800,
+            vram_mb: None,
+            spread: 1.0,
+            passes: 0,
+            stability: aural_models::Stability::Stable,
+            measured: false,
+            error: None,
+        };
+        let labels = BTreeMap::from([(PK_DML.to_string(), vec![]), (PK_CPU.to_string(), vec![])]);
+        assert_eq!(
+            variant_to_activate(pk, &labels, &[r(PK_CPU, 300), r(PK_DML, 200)]),
+            PK_DML
+        );
+        let labels = BTreeMap::from([
+            (PK_DML.to_string(), www(Reason::NoGpu)),
+            (PK_CPU.to_string(), vec![]),
+        ]);
+        assert_eq!(
+            variant_to_activate(pk, &labels, &[r(PK_CPU, 300), r(PK_DML, 200)]),
+            PK_CPU
+        );
+        // Nothing known yet: the processor.
+        assert_eq!(variant_to_activate(pk, &BTreeMap::new(), &[]), PK_CPU);
+    }
+
+    #[test]
+    fn a_new_check_replaces_old_results_only_when_it_completes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ResultsStore::load(&dir.path().join("hardware.json")).unwrap();
+        store.reset_for(&laptop(true));
+        store.put(VariantResult {
+            variant: PK_CPU.into(),
+            metrics: None,
+            load_ms: 0,
+            ram_mb: 0,
+            vram_mb: None,
+            spread: 0.0,
+            passes: 3,
+            stability: aural_models::Stability::Stable,
+            measured: true,
+            error: None,
+        });
+        let before = store.get(PK_CPU).cloned();
+        let mut run = TestRun::default();
+        run.results.push(VariantResult {
+            variant: SMALL_CPU.into(),
+            ..before.clone().unwrap()
+        });
+        // Cancelled: nothing changes.
+        run.commit_if_complete(&mut store, &laptop(true), false);
+        assert_eq!(store.get(PK_CPU).cloned(), before);
+        assert!(store.get(SMALL_CPU).is_none());
+        // Completed: the new run replaces the old one.
+        run.commit_if_complete(&mut store, &laptop(true), true);
+        assert!(store.get(PK_CPU).is_none());
+        assert!(store.get(SMALL_CPU).is_some());
+    }
+
+    #[test]
+    fn cancelling_a_check_keeps_measurements_of_new_downloads() {
+        let mut jobs = VecDeque::from([
+            Job::Measure(PK_CPU.into()),
+            Job::FullTest {
+                allow_probe_download: true,
+            },
+            Job::Measure(SMALL_CPU.into()),
+        ]);
+        assert!(drop_tests(&mut jobs));
+        assert_eq!(jobs.len(), 2);
+        assert!(jobs.iter().all(|j| matches!(j, Job::Measure(_))));
+        assert!(!drop_tests(&mut jobs));
+    }
+
+    #[test]
     fn download_triggers_measurement() {
         let c = catalog_with_directml();
         let pk = c.get("parakeet-tdt-0.6b-v2-int8").unwrap();
         let mut q = MeasureQueue::default();
         q.on_download_complete(pk, &laptop(true));
-        assert_eq!(q.pop().as_deref(), Some(PK_CPU));
+        // The graphics card first: its result decides quickly whether the model is
+        // usable there, and the processor run can be slow for big models.
         assert_eq!(q.pop().as_deref(), Some(PK_DML));
+        assert_eq!(q.pop().as_deref(), Some(PK_CPU));
         assert!(q.is_empty());
         // Without a separate graphics card only the processor is measured.
         q.on_download_complete(pk, &laptop(false));

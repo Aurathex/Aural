@@ -100,6 +100,7 @@ pub fn build_engine(
 pub(crate) mod test_support {
     /// ONNX Runtime's device choice is process-wide (transcribe-rs), so tests that load
     /// ONNX models take turns; in the app each worker process loads one model at a time.
+    #[cfg(feature = "onnx")]
     pub fn ort_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         LOCK.lock().unwrap_or_else(|p| p.into_inner())
