@@ -4,11 +4,17 @@
 
 pub mod catalog;
 pub mod download;
+pub mod estimate;
+pub mod labels;
 pub mod recommend;
 pub mod store;
+#[cfg(test)]
+mod test_fixtures;
 
 pub use aural_stt_protocol::bench::{Stability, VariantResult};
 pub use catalog::{Catalog, ModelEntry, ModelFile};
 pub use download::{download, download_with, DownloadError, DownloadOptions, Progress};
+pub use estimate::{estimate, Calibration};
+pub use labels::{labels, Label, Reason};
 pub use recommend::{compatible, recommend, HardwareProfile};
 pub use store::{statuses, ModelState, ModelStatus, ModelStore};

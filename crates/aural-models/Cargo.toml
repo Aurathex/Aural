@@ -9,6 +9,7 @@ description = "Aural model catalog, install store, verified downloads and recomm
 [dependencies]
 anyhow = "1.0.104"
 aural-engines = { path = "../aural-engines" }
+aural-eval = { path = "../aural-eval" }
 aural-platform = { path = "../aural-platform" }
 aural-stt-protocol = { path = "../aural-stt-protocol" }
 serde = { version = "1", features = ["derive"] }
