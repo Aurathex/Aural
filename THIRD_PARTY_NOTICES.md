@@ -85,13 +85,15 @@ SOFTWARE.
 
 ## Speech models (downloaded on request, never bundled)
 
-- **Parakeet TDT 0.6B v2** by NVIDIA — https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2 —
-  licensed CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Aural downloads the
-  ONNX conversion with int8 quantization by istupakov
-  (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx); the weights were
-  modified from the original by that conversion.
-- **Whisper small.en and base.en** by OpenAI — MIT License — in ggml format from the
-  whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized.
+- **Parakeet TDT 0.6B v2** — Parakeet TDT 0.6B v2 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2), licensed CC BY 4.0. Converted to ONNX with int8 quantization by istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx). License: https://creativecommons.org/licenses/by/4.0/
+- **Parakeet TDT 0.6B v3** — Parakeet TDT 0.6B v3 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), licensed CC BY 4.0. Converted to ONNX with int8 quantization by istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx). License: https://creativecommons.org/licenses/by/4.0/
+- **Moonshine base** — Moonshine base by Useful Sensors (https://huggingface.co/UsefulSensors/moonshine-base), MIT License. ONNX export with dynamic int8 quantization by onnx-community (https://huggingface.co/onnx-community/moonshine-base-ONNX). License: https://opensource.org/license/mit
+- **Whisper large-v3 turbo** — Whisper large-v3-turbo by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 5-bit quantized. License: https://github.com/openai/whisper/blob/main/LICENSE
+- **Distil-Whisper large-v3.5** — Distil-Whisper large-v3.5 by Hugging Face (https://huggingface.co/distil-whisper/distil-large-v3.5), MIT License, in ggml format (https://huggingface.co/distil-whisper/distil-large-v3.5-ggml). License: https://opensource.org/license/mit
+- **Whisper small.en** — Whisper small.en by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized. License: https://github.com/openai/whisper/blob/main/LICENSE
+- **Whisper base.en** — Whisper base.en by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized. License: https://github.com/openai/whisper/blob/main/LICENSE
+- **Whisper tiny.en (test model)** — Whisper tiny.en by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized. License: https://github.com/openai/whisper/blob/main/LICENSE
+- **Moonshine tiny (test model)** — Moonshine tiny by Useful Sensors (https://huggingface.co/UsefulSensors/moonshine-tiny), MIT License. ONNX export with dynamic int8 quantization by onnx-community (https://huggingface.co/onnx-community/moonshine-tiny-ONNX). License: https://opensource.org/license/mit
 
 ## JavaScript packages compiled into the user interface
 ### @tauri-apps/api 2.11.1 (Apache-2.0 OR MIT)
@@ -292,7 +294,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - **MIT License** (273 crates)
 - **Unicode License v3** (19 crates)
 - **ISC License** (18 crates)
-- **Apache License 2.0** (10 crates)
+- **Apache License 2.0** (11 crates)
 - **Mozilla Public License 2.0** (5 crates)
 - **BSD 3-Clause &quot;New&quot; or &quot;Revised&quot; License** (4 crates)
 - **The Unlicense** (2 crates)
@@ -302,6 +304,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ### Apache License 2.0
 
 Used by:
+- claxon 0.4.3 — https://github.com/ruuda/claxon
 - hound 3.5.1 — https://github.com/ruuda/hound
 
 ```text

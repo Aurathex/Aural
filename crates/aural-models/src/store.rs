@@ -160,7 +160,7 @@ pub fn usable_variant(
     catalog
         .models
         .iter()
-        .filter(|m| store.is_installed(m))
+        .filter(|m| !m.probe && store.is_installed(m))
         .find_map(|m| cpu(&m.id))
 }
 
@@ -176,6 +176,8 @@ pub fn statuses(
     catalog
         .models
         .iter()
+        // Test models are for the hardware test only.
+        .filter(|m| !m.probe)
         .map(|m| {
             let installed = store.is_installed(m);
             let state = if let Some(&(downloaded, total)) = downloading.get(&m.id) {
@@ -418,6 +420,27 @@ mod tests {
         );
         assert!(get("parakeet-tdt-0.6b-v2-int8").recommended);
         assert!(!get("whisper-base.en-q8").recommended);
+    }
+
+    #[test]
+    fn a_test_model_is_never_chosen_for_dictation() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = Catalog::builtin();
+        fake_install(&store, c.get("whisper-tiny.en-q8").unwrap());
+        assert_eq!(usable_variant(&c, &store, None, &HW), None);
+    }
+
+    #[test]
+    fn test_models_are_not_listed() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = Catalog::builtin();
+        let st = statuses(&c, &store, None, &HashMap::new(), &HW);
+        assert!(!st.is_empty());
+        for s in &st {
+            assert!(!c.get(&s.id).unwrap().probe, "{} is a test model", s.id);
+        }
     }
 
     #[test]

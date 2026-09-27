@@ -10,7 +10,7 @@
       "precision": "int8",
       "streaming": false,
       "probe": false,
-      "description": "Most accurate English model. Fast on modern CPUs.",
+      "description": "Very accurate for English. Quick on most modern PCs.",
       "languages": [
         "en"
       ],
@@ -59,6 +59,234 @@
             "wer": 0.0251,
             "vram_mb": 0
           }
+        },
+        {
+          "backend": "directml",
+          "min_ram_mb": 2048,
+          "min_vram_mb": 1536,
+          "reference": null
+        }
+      ]
+    },
+    {
+      "id": "parakeet-tdt-0.6b-v3-int8",
+      "name": "Parakeet TDT 0.6B v3",
+      "family": "parakeet",
+      "engine": "parakeet",
+      "runtime": "onnx",
+      "precision": "int8",
+      "streaming": false,
+      "probe": false,
+      "description": "Newer Parakeet that also understands 24 other European languages. Very accurate.",
+      "languages": [
+        "bg",
+        "hr",
+        "cs",
+        "da",
+        "nl",
+        "en",
+        "et",
+        "fi",
+        "fr",
+        "de",
+        "el",
+        "hu",
+        "it",
+        "lv",
+        "lt",
+        "mt",
+        "pl",
+        "pt",
+        "ro",
+        "sk",
+        "sl",
+        "es",
+        "sv",
+        "ru",
+        "uk"
+      ],
+      "license": {
+        "id": "CC-BY-4.0",
+        "url": "https://creativecommons.org/licenses/by/4.0/",
+        "attribution": "Parakeet TDT 0.6B v3 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), licensed CC BY 4.0. Converted to ONNX with int8 quantization by istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx)."
+      },
+      "source": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx",
+      "files": [
+        {
+          "name": "encoder-model.int8.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/encoder-model.int8.onnx",
+          "sha256": "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09",
+          "size": 652183999
+        },
+        {
+          "name": "decoder_joint-model.int8.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/decoder_joint-model.int8.onnx",
+          "sha256": "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70",
+          "size": 18202004
+        },
+        {
+          "name": "nemo128.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/nemo128.onnx",
+          "sha256": "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f",
+          "size": 139764
+        },
+        {
+          "name": "vocab.txt",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/vocab.txt",
+          "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+          "size": 93939
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 2048,
+          "min_vram_mb": 0,
+          "reference": null
+        },
+        {
+          "backend": "directml",
+          "min_ram_mb": 2048,
+          "min_vram_mb": 1536,
+          "reference": null
+        }
+      ]
+    },
+    {
+      "id": "moonshine-base-int8",
+      "name": "Moonshine base",
+      "family": "moonshine",
+      "engine": "moonshine",
+      "runtime": "onnx",
+      "precision": "int8",
+      "streaming": false,
+      "probe": false,
+      "description": "Small and quick. A good fit for older or low-memory PCs.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "MIT",
+        "url": "https://opensource.org/license/mit",
+        "attribution": "Moonshine base by Useful Sensors (https://huggingface.co/UsefulSensors/moonshine-base), MIT License. ONNX export with dynamic int8 quantization by onnx-community (https://huggingface.co/onnx-community/moonshine-base-ONNX)."
+      },
+      "source": "https://huggingface.co/onnx-community/moonshine-base-ONNX",
+      "files": [
+        {
+          "name": "encoder_model.int8.onnx",
+          "url": "https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/encoder_model_quantized.onnx",
+          "sha256": "1dd9ab0a7f987113d30affcba5a068d11c8f90fa0223caa3e491ade431ad9751",
+          "size": 20513063
+        },
+        {
+          "name": "decoder_model_merged.int8.onnx",
+          "url": "https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/decoder_model_merged_quantized.onnx",
+          "sha256": "cc9f3cd6698a369c6008b41aa60aa3fb3322e7f03c9bdf19d8e6b7200afca4f3",
+          "size": 42498870
+        },
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/config.json",
+          "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+          "size": 922
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer.json",
+          "sha256": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
+          "size": 3761754
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 512,
+          "min_vram_mb": 0,
+          "reference": null
+        }
+      ]
+    },
+    {
+      "id": "whisper-large-v3-turbo-q5",
+      "name": "Whisper large-v3 turbo",
+      "family": "whisper",
+      "engine": "whisper",
+      "runtime": "ggml",
+      "precision": "q5_0",
+      "streaming": false,
+      "probe": false,
+      "description": "Whisper's large model, sped up. Very accurate; works best with a graphics card.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "MIT",
+        "url": "https://github.com/openai/whisper/blob/main/LICENSE",
+        "attribution": "Whisper large-v3-turbo by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 5-bit quantized."
+      },
+      "source": "https://huggingface.co/ggerganov/whisper.cpp",
+      "files": [
+        {
+          "name": "ggml-large-v3-turbo-q5_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
+          "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+          "size": 574041195
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 1536,
+          "min_vram_mb": 0,
+          "reference": null
+        },
+        {
+          "backend": "vulkan",
+          "min_ram_mb": 1024,
+          "min_vram_mb": 1536,
+          "reference": null
+        }
+      ]
+    },
+    {
+      "id": "whisper-distil-large-v3.5",
+      "name": "Distil-Whisper large-v3.5",
+      "family": "whisper",
+      "engine": "whisper",
+      "runtime": "ggml",
+      "precision": "fp16",
+      "streaming": false,
+      "probe": false,
+      "description": "A faster, lighter version of Whisper's large model. Very accurate; works best with a graphics card.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "MIT",
+        "url": "https://opensource.org/license/mit",
+        "attribution": "Distil-Whisper large-v3.5 by Hugging Face (https://huggingface.co/distil-whisper/distil-large-v3.5), MIT License, in ggml format (https://huggingface.co/distil-whisper/distil-large-v3.5-ggml)."
+      },
+      "source": "https://huggingface.co/distil-whisper/distil-large-v3.5-ggml",
+      "files": [
+        {
+          "name": "ggml-model.bin",
+          "url": "https://huggingface.co/distil-whisper/distil-large-v3.5-ggml/resolve/960ecb5c2ecfba3ebb9ebe485c1032ec266cf436/ggml-model.bin",
+          "sha256": "ec2498919b498c5f6b00041adb45650124b3cd9f26f545fffa8f5d11c28dcf26",
+          "size": 1519521155
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 3072,
+          "min_vram_mb": 0,
+          "reference": null
+        },
+        {
+          "backend": "vulkan",
+          "min_ram_mb": 1024,
+          "min_vram_mb": 2560,
+          "reference": null
         }
       ]
     },
@@ -102,6 +330,12 @@
             "wer": 0.0313,
             "vram_mb": 0
           }
+        },
+        {
+          "backend": "vulkan",
+          "min_ram_mb": 512,
+          "min_vram_mb": 768,
+          "reference": null
         }
       ]
     },
@@ -145,6 +379,108 @@
             "wer": 0.0488,
             "vram_mb": 0
           }
+        },
+        {
+          "backend": "vulkan",
+          "min_ram_mb": 512,
+          "min_vram_mb": 512,
+          "reference": null
+        }
+      ]
+    },
+    {
+      "id": "whisper-tiny.en-q8",
+      "name": "Whisper tiny.en (test model)",
+      "family": "whisper",
+      "engine": "whisper",
+      "runtime": "ggml",
+      "precision": "q8_0",
+      "streaming": false,
+      "probe": true,
+      "description": "Tiny model the hardware test uses to learn how fast this PC is.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "MIT",
+        "url": "https://github.com/openai/whisper/blob/main/LICENSE",
+        "attribution": "Whisper tiny.en by OpenAI (MIT), in ggml format from the whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized."
+      },
+      "source": "https://huggingface.co/ggerganov/whisper.cpp",
+      "files": [
+        {
+          "name": "ggml-tiny.en-q8_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.en-q8_0.bin",
+          "sha256": "5bc2b3860aa151a4c6e7bb095e1fcce7cf12c7b020ca08dcec0c6d018bb7dd94",
+          "size": 43550795
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 256,
+          "min_vram_mb": 0,
+          "reference": null
+        },
+        {
+          "backend": "vulkan",
+          "min_ram_mb": 256,
+          "min_vram_mb": 256,
+          "reference": null
+        }
+      ]
+    },
+    {
+      "id": "moonshine-tiny-int8",
+      "name": "Moonshine tiny (test model)",
+      "family": "moonshine",
+      "engine": "moonshine",
+      "runtime": "onnx",
+      "precision": "int8",
+      "streaming": false,
+      "probe": true,
+      "description": "Tiny model the hardware test uses to learn how fast this PC is.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "MIT",
+        "url": "https://opensource.org/license/mit",
+        "attribution": "Moonshine tiny by Useful Sensors (https://huggingface.co/UsefulSensors/moonshine-tiny), MIT License. ONNX export with dynamic int8 quantization by onnx-community (https://huggingface.co/onnx-community/moonshine-tiny-ONNX)."
+      },
+      "source": "https://huggingface.co/onnx-community/moonshine-tiny-ONNX",
+      "files": [
+        {
+          "name": "encoder_model.int8.onnx",
+          "url": "https://huggingface.co/onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/onnx/encoder_model_quantized.onnx",
+          "sha256": "c6fc4b7bc5af75c0591fd157a1f3829b533d18e9769a888fd95a62e470dd4f4a",
+          "size": 7937661
+        },
+        {
+          "name": "decoder_model_merged.int8.onnx",
+          "url": "https://huggingface.co/onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/onnx/decoder_model_merged_quantized.onnx",
+          "sha256": "eed87831c3a6103534aae7d47a5d485025c659a1323901513961c39fe8a1a367",
+          "size": 20243286
+        },
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/config.json",
+          "sha256": "558e1e02069137c796ace1e50c48d8fe451f04a295929138e6bea885517f0edb",
+          "size": 921
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/tokenizer.json",
+          "sha256": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
+          "size": 3761754
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 256,
+          "min_vram_mb": 0,
+          "reference": null
         }
       ]
     }

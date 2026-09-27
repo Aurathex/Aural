@@ -39,6 +39,11 @@ own license (LICENSE.md) does not change their terms.
   are installed next to Aural as `licenses\onnxruntime-ThirdPartyNotices.txt`.
 - **whisper.cpp / ggml** — © The ggml authors, MIT License (text below); compiled into
   `aural-stt-ggml.exe`.
+- **LibriSpeech test-clean** (20 short recordings in `eval\`, used by the Hardware Test to
+  check accuracy and speed) — by Vassil Panayotov, Guoguo Chen, Daniel Povey and Sanjeev
+  Khudanpur, from LibriVox audiobooks — https://www.openslr.org/12 — licensed CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/). Re-encoded to 16 kHz mono FLAC; the
+  audio is otherwise unmodified.
 - **Mozilla CA certificate list** (via `webpki-roots`) — CDLA-Permissive-2.0; used to
   verify HTTPS model downloads.
 
@@ -49,17 +54,15 @@ own license (LICENSE.md) does not change their terms.
 
 ## Speech models (downloaded on request, never bundled)
 
-- **Parakeet TDT 0.6B v2** by NVIDIA — https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2 —
-  licensed CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Aural downloads the
-  ONNX conversion with int8 quantization by istupakov
-  (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx); the weights were
-  modified from the original by that conversion.
-- **Whisper small.en and base.en** by OpenAI — MIT License — in ggml format from the
-  whisper.cpp project (https://huggingface.co/ggerganov/whisper.cpp), 8-bit quantized.
+@@MODELS@@
 
 ## JavaScript packages compiled into the user interface
 
 '@
+    # One line per catalog model, from the attribution the catalog carries.
+    $catalog = Get-Content (Join-Path $root 'manifests\catalog.v2.json') -Raw | ConvertFrom-Json
+    $models = ($catalog.models | ForEach-Object { "- **$($_.name)** — $($_.license.attribution) License: $($_.license.url)" }) -join "`n"
+    $header = $header.Replace('@@MODELS@@', $models)
     $native = foreach ($pair in @(@('ONNX Runtime', 'licenses\onnxruntime\LICENSE'), @('whisper.cpp / ggml', 'licenses\ggml\LICENSE'))) {
         $text = (Get-Content (Join-Path $root $pair[1]) -Raw).Trim()
         "### $($pair[0])`n`n``````text`n$text`n```````n"

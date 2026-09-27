@@ -252,6 +252,61 @@ mod tests {
     }
 
     #[test]
+    fn expected_models_present() {
+        let c = Catalog::builtin();
+        for (id, backends) in [
+            ("parakeet-tdt-0.6b-v2-int8", &["cpu", "directml"][..]),
+            ("parakeet-tdt-0.6b-v3-int8", &["cpu", "directml"]),
+            ("moonshine-base-int8", &["cpu"]),
+            ("whisper-large-v3-turbo-q5", &["cpu", "vulkan"]),
+            ("whisper-distil-large-v3.5", &["cpu", "vulkan"]),
+            ("whisper-small.en-q8", &["cpu", "vulkan"]),
+            ("whisper-base.en-q8", &["cpu", "vulkan"]),
+            ("whisper-tiny.en-q8", &["cpu", "vulkan"]),
+            ("moonshine-tiny-int8", &["cpu"]),
+        ] {
+            let m = c.get(id).unwrap_or_else(|| panic!("{id} missing"));
+            let have: Vec<String> = m.variants.iter().map(|v| backend_name(v.backend)).collect();
+            assert_eq!(have, backends, "{id}");
+            assert!(!m.license.attribution.is_empty(), "{id}");
+        }
+    }
+
+    #[test]
+    fn probe_models_are_small() {
+        let c = Catalog::builtin();
+        let probes: Vec<&ModelEntry> = c.models.iter().filter(|m| m.probe).collect();
+        let ids: Vec<&str> = probes.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["whisper-tiny.en-q8", "moonshine-tiny-int8"]);
+        // One per runtime, so each worker can be calibrated.
+        assert_ne!(probes[0].runtime, probes[1].runtime);
+        for p in &probes {
+            assert!(
+                p.total_size() <= 60 * 1024 * 1024,
+                "{}: {}",
+                p.id,
+                p.total_size()
+            );
+        }
+    }
+
+    #[test]
+    fn moonshine_is_never_offered_on_the_graphics_card() {
+        // It produces garbage there (see onnx_moonshine.rs).
+        for m in Catalog::builtin()
+            .models
+            .iter()
+            .filter(|m| m.family == "moonshine")
+        {
+            assert!(
+                m.variants.iter().all(|v| v.backend == Backend::Cpu),
+                "{}",
+                m.id
+            );
+        }
+    }
+
+    #[test]
     fn v01_model_ids_are_unchanged() {
         let c = Catalog::builtin();
         for id in [
