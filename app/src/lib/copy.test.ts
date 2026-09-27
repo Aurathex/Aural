@@ -14,6 +14,7 @@ import {
   stepText,
   userFacingText,
   backgroundMeasuring,
+  recheckChoices,
 } from "./copy";
 import type { Label, Reason } from "./types";
 
@@ -124,7 +125,7 @@ describe("plain-language copy", () => {
   });
 
   it("says when a downloaded model is being tried in the background", () => {
-    const base = { running: false, done: 0, total: 0, tested: true, stale: false };
+    const base = { running: false, done: 0, total: 0, tested: true, stale: false, test_models_installed: true };
     const measuring = { ...base, step: { step: "measuring" as const, variant: "moonshine-base-int8@cpu" } };
     expect(backgroundMeasuring(measuring, "Moonshine base")).toBe(
       "Trying Moonshine base on your processor… You can keep dictating.",
@@ -133,6 +134,18 @@ describe("plain-language copy", () => {
     expect(backgroundMeasuring({ ...measuring, running: true }, "Moonshine base")).toBeNull();
     expect(backgroundMeasuring({ ...base, step: null }, "x")).toBeNull();
     expect(hasJargon(backgroundMeasuring(measuring, "Moonshine base") ?? "")).toBe(false);
+  });
+
+  it("asks again before a re-check downloads the test models", () => {
+    const base = { running: false, step: null, done: 0, total: 0, tested: true, stale: false };
+    // Test models not on this PC: offer the download and the no-download check.
+    const ask = recheckChoices({ ...base, test_models_installed: false });
+    expect(ask.map((c) => c.allowDownload)).toEqual([true, false]);
+    expect(ask[0]!.label).toContain("MB");
+    // Already downloaded: nothing new to download, one button.
+    const have = recheckChoices({ ...base, test_models_installed: true });
+    expect(have).toEqual([{ label: "Check my PC again", allowDownload: true }]);
+    for (const c of [...ask, ...have]) expect(hasJargon(c.label)).toBe(false);
   });
 
   it("flags jargon as whole words only", () => {

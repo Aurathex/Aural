@@ -148,6 +148,10 @@ pub fn active_after_test(
     let Some(reason) = reason else {
         return ActiveDecision::Keep;
     };
+    // Free memory changes all the time and the model is running: not a reason to switch.
+    if matches!(reason, Reason::NotEnoughMemory { .. }) {
+        return ActiveDecision::Keep;
+    }
     let works = |id: &&String| {
         installed(id.as_str())
             && labels[id.as_str()]
@@ -200,11 +204,18 @@ pub fn fallback_after_load_failure(
     if backend == Backend::Cpu {
         return None;
     }
-    let cpu_ok = |id: &str| {
+    let cpu_installed = |id: &str| {
         installed(id)
             && catalog
                 .variant(id)
                 .is_some_and(|(_, v)| v.backend == Backend::Cpu)
+    };
+    // Not one already known to work badly here (e.g. far too slow on the processor).
+    let cpu_ok = |id: &str| {
+        cpu_installed(id)
+            && labels
+                .get(id)
+                .is_none_or(|ls| !ls.iter().any(|l| matches!(l, Label::WontWorkWell { .. })))
     };
     let same = catalog
         .get(model)
@@ -222,7 +233,14 @@ pub fn fallback_after_load_failure(
             .map(|m| m.variant_id(Backend::Cpu))
             .find(|id| cpu_ok(id))
     };
-    let to = same.or(recommended).or_else(any)?;
+    // Last resort: the same model on the processor even if slow, rather than nothing.
+    let last_resort = || {
+        catalog
+            .get(model)
+            .map(|m| m.variant_id(Backend::Cpu))
+            .filter(|id| cpu_installed(id))
+    };
+    let to = same.or(recommended).or_else(any).or_else(last_resort)?;
     Some((
         to,
         "Your graphics card couldn't start this model, so Aural is using your processor instead. You can keep dictating."
@@ -358,6 +376,8 @@ pub struct HwTestStatus {
     pub tested: bool,
     /// The saved results are from different hardware (new graphics card or driver).
     pub stale: bool,
+    /// The small test models are already downloaded (a re-check needs no download).
+    pub test_models_installed: bool,
 }
 
 enum Job {
@@ -428,6 +448,19 @@ impl HwTest {
     fn push(&self, job: Job) {
         lock(&self.jobs).push_back(job);
         self.wake.notify_one();
+    }
+}
+
+/// The check's status, including whether its test models are already on this PC.
+pub fn status(app: &App) -> HwTestStatus {
+    HwTestStatus {
+        test_models_installed: app
+            .catalog
+            .models
+            .iter()
+            .filter(|m| m.probe)
+            .all(|m| app.store.is_installed(m)),
+        ..app.hwtest.status(&app.hw)
     }
 }
 
@@ -562,9 +595,7 @@ fn set_step(app: &App, step: Option<HwStep>, done: usize, total: usize) {
         s.done = done;
         s.total = total;
     }
-    let _ = app
-        .handle
-        .emit_to("main", "hwtest-progress", app.hwtest.status(&app.hw));
+    let _ = app.handle.emit_to("main", "hwtest-progress", status(app));
 }
 
 fn cancelled(app: &App) -> bool {
@@ -1043,6 +1074,46 @@ mod tests {
         assert_eq!(
             fallback_after_load_failure(turbo_vk, &labels, &c, &only_small).map(|d| d.0),
             Some(SMALL_CPU.to_string())
+        );
+    }
+
+    #[test]
+    fn a_failed_graphics_card_never_falls_back_to_a_too_slow_processor_variant() {
+        let c = catalog_with_directml();
+        let turbo_vk = "whisper-large-v3-turbo-q5@vulkan";
+        let turbo_cpu = "whisper-large-v3-turbo-q5@cpu";
+        let labels = BTreeMap::from([
+            (turbo_cpu.to_string(), www(Reason::TooSlow)),
+            (PK_CPU.to_string(), vec![]),
+        ]);
+        let installed =
+            |id: &str| id.starts_with("whisper-large") || id.starts_with("parakeet-tdt-0.6b-v2");
+        assert_eq!(
+            fallback_after_load_failure(turbo_vk, &labels, &c, &installed).map(|d| d.0),
+            Some(PK_CPU.to_string())
+        );
+        // Nothing else installed: the slow processor variant is still better than no
+        // dictation at all.
+        let only_turbo = |id: &str| id.starts_with("whisper-large");
+        assert_eq!(
+            fallback_after_load_failure(turbo_vk, &labels, &c, &only_turbo).map(|d| d.0),
+            Some(turbo_cpu.to_string())
+        );
+    }
+
+    #[test]
+    fn a_loaded_model_is_not_switched_away_just_for_memory() {
+        // Free memory changes all the time; the model is demonstrably running.
+        let labels = BTreeMap::from([
+            (
+                PK_CPU.to_string(),
+                www(Reason::NotEnoughMemory { need_mb: 2_048 }),
+            ),
+            (SMALL_CPU.to_string(), vec![Label::Recommended]),
+        ]);
+        assert_eq!(
+            active_after_test(Some(PK_CPU), &labels, &Catalog::builtin(), &|_| true),
+            ActiveDecision::Keep
         );
     }
 

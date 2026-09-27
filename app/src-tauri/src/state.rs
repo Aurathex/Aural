@@ -128,7 +128,7 @@ impl App {
             last_transcript_available: lock(&self.last_transcript).is_some(),
             results: eval.results,
             labels: eval.labels,
-            hardware_test: self.hwtest.status(&self.hw),
+            hardware_test: crate::hwtest::status(self),
             settings: s,
         }
     }

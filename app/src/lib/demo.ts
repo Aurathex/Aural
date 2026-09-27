@@ -205,7 +205,7 @@ const state: AppState = {
   last_transcript_available: false,
   results: fresh ? [] : results,
   labels: fresh ? {} : labels,
-  hardware_test: { running: false, step: null, done: 0, total: 0, tested: !fresh, stale: false },
+  hardware_test: { running: false, step: null, done: 0, total: 0, tested: !fresh, stale: false, test_models_installed: !fresh },
 };
 
 let levelTimer: number | undefined;
@@ -228,7 +228,7 @@ function runTest(allowDownload: boolean) {
       window.clearInterval(testTimer);
       state.results = results;
       state.labels = allowDownload ? labels : {};
-      state.hardware_test = { running: false, step: { step: "done" }, done: 0, total: 0, tested: true, stale: false };
+      state.hardware_test = { running: false, step: { step: "done" }, done: 0, total: 0, tested: true, stale: false, test_models_installed: allowDownload };
       emit("state-changed", structuredClone(state));
       return;
     }

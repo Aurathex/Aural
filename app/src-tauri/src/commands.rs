@@ -223,7 +223,7 @@ pub fn hardware_state(app: State<'_, Arc<App>>) -> HardwareState {
         hardware: app.hw.clone(),
         results: e.results,
         labels: e.labels,
-        hardware_test: app.hwtest.status(&app.hw),
+        hardware_test: crate::hwtest::status(&app),
     }
 }
 

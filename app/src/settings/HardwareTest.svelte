@@ -1,6 +1,6 @@
 <script lang="ts">
   import { call } from "../lib/api";
-  import { backgroundMeasuring, labelText, placeText, stepText, variantBackend } from "../lib/copy";
+  import { backgroundMeasuring, labelText, placeText, recheckChoices, stepText, variantBackend } from "../lib/copy";
   import type { AppState } from "../lib/types";
 
   let { app, update }: { app: AppState; update: (next: AppState) => void } = $props();
@@ -57,7 +57,7 @@
     <h2 id="hwtest-title">Find the right model for this PC</h2>
     <p>
       Aural will check what your PC can handle and try a couple of small voice models to see how fast they run. This
-      takes about a minute and downloads about 80 MB. Nothing leaves your PC.
+      takes a minute or two and downloads about 75 MB. Nothing leaves your PC.
     </p>
     <div class="buttons">
       <button class="btn primary" onclick={() => start(true)}>Check my PC</button>
@@ -66,11 +66,19 @@
   {:else if t.stale}
     <h2 id="hwtest-title">Your PC has changed</h2>
     <p>Something changed since the last check, such as a new graphics card or driver. Check again to update the advice below.</p>
-    <div class="buttons"><button class="btn primary" onclick={() => start(true)}>Check my PC again</button></div>
+    <div class="buttons">
+      {#each recheckChoices(t) as c, i (c.label)}
+        <button class="btn" class:primary={i === 0} class:quiet={i > 0} onclick={() => start(c.allowDownload)}>{c.label}</button>
+      {/each}
+    </div>
   {:else}
     <h2 id="hwtest-title">What suits this PC</h2>
     <p aria-live="polite">{summary}</p>
-    <div class="buttons"><button class="btn quiet" onclick={() => start(true)}>Check my PC again</button></div>
+    <div class="buttons">
+      {#each recheckChoices(t) as c (c.label)}
+        <button class="btn quiet" onclick={() => start(c.allowDownload)}>{c.label}</button>
+      {/each}
+    </div>
   {/if}
   {#if background}<p class="live" aria-live="polite">{background}</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}

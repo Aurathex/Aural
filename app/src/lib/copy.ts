@@ -188,3 +188,12 @@ export function backgroundMeasuring(s: HwTestStatus, modelName?: string): string
   if (s.running || s.step?.step !== "measuring") return null;
   return `${stepText(s.step, modelName)} You can keep dictating.`;
 }
+
+/** Buttons for checking the PC again: never download the test models without asking. */
+export function recheckChoices(s: HwTestStatus): { label: string; allowDownload: boolean }[] {
+  if (s.test_models_installed) return [{ label: "Check my PC again", allowDownload: true }];
+  return [
+    { label: "Check my PC again (downloads about 75 MB)", allowDownload: true },
+    { label: "Check again without downloading", allowDownload: false },
+  ];
+}

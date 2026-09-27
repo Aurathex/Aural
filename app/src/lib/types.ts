@@ -170,4 +170,6 @@ export interface HwTestStatus {
   total: number;
   tested: boolean;
   stale: boolean;
+  /** The two small test models are already on this PC. */
+  test_models_installed: boolean;
 }

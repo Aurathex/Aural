@@ -144,10 +144,10 @@ struct Candidate {
 
 /// At most half the free memory and 70% of the graphics card's.
 fn roomy(v: &Variant, r: &VariantResult, hw: &HardwareProfile) -> bool {
-    let ram_ok = r.ram_mb.max(v.min_ram_mb) as f64 <= hw.free_ram_mb as f64 * RAM_HEADROOM;
+    let ram_ok = need(r.ram_mb, v.min_ram_mb) as f64 <= hw.free_ram_mb as f64 * RAM_HEADROOM;
     let vram_ok = v.backend == Backend::Cpu
         || primary_discrete(&hw.gpus).is_some_and(|g| {
-            r.vram_mb.unwrap_or(0).max(v.min_vram_mb) as f64 <= g.vram_mb as f64 * VRAM_HEADROOM
+            need(r.vram_mb.unwrap_or(0), v.min_vram_mb) as f64 <= g.vram_mb as f64 * VRAM_HEADROOM
         });
     ram_ok && vram_ok
 }
@@ -190,12 +190,12 @@ fn unsuitable(v: &Variant, r: &VariantResult, hw: &HardwareProfile) -> Option<Re
         return Some(Reason::Unstable { detail });
     }
     // Won't fit at all. (Headroom only decides whether it can be recommended.)
-    let need_ram = r.ram_mb.max(v.min_ram_mb);
+    let need_ram = need(r.ram_mb, v.min_ram_mb);
     if need_ram > hw.free_ram_mb {
         return Some(Reason::NotEnoughMemory { need_mb: need_ram });
     }
     if let Some(gpu) = gpu.filter(|_| on_gpu) {
-        let need_vram = r.vram_mb.unwrap_or(0).max(v.min_vram_mb);
+        let need_vram = need(r.vram_mb.unwrap_or(0), v.min_vram_mb);
         if need_vram > gpu.vram_mb {
             return Some(Reason::NotEnoughGpuMemory { need_mb: need_vram });
         }
@@ -212,6 +212,16 @@ fn unsuitable(v: &Variant, r: &VariantResult, hw: &HardwareProfile) -> Option<Re
         return Some(Reason::TooSlow);
     }
     None
+}
+
+/// Memory a model needs: what it used when measured (or its estimate), else the
+/// catalog's conservative install minimum.
+fn need(used_mb: u64, minimum_mb: u64) -> u64 {
+    if used_mb > 0 {
+        used_mb
+    } else {
+        minimum_mb
+    }
 }
 
 fn unstable_detail(r: &VariantResult) -> Option<String> {
@@ -587,6 +597,21 @@ mod tests {
             [Label::WontWorkWell {
                 reason: Reason::NotEnoughMemory { need_mb: 4_500 }
             }]
+        );
+    }
+
+    #[test]
+    fn a_measured_model_fits_by_what_it_used_not_the_install_minimum() {
+        // Parakeet: catalog minimum 2 GB, measured 863 MB, 1.9 GB free.
+        let hw = hw(8_000, 1_900, 8, vec![]);
+        let (m, mut v, res) = r(PK, Backend::Cpu, 0.0251, 350, 0.05, 863).row();
+        v.min_ram_mb = 2_048;
+        let l = labels(&[(m, v, res)], &hw, WORDS);
+        assert!(
+            !l[&id(PK, "cpu")]
+                .iter()
+                .any(|x| matches!(x, Label::WontWorkWell { .. })),
+            "{l:?}"
         );
     }
 
