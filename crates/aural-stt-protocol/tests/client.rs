@@ -166,3 +166,50 @@ fn a_stopped_client_refuses_stats_too() {
         Err(ClientError::Stopped)
     ));
 }
+
+fn speech(n: usize) -> Vec<f32> {
+    (0..n).map(|i| (i as f32 * 0.07).sin() * 0.3).collect()
+}
+
+#[test]
+fn live_text_streams_through_the_worker_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = loaded(&[], dir.path());
+    let t = Duration::from_secs(5);
+    assert_eq!(
+        c.live_begin(t).unwrap(),
+        aural_engines::live::LiveMode::Phrases
+    );
+    let text = c.live_push(&speech(8_000), t).unwrap();
+    assert!(text.tentative.ends_with("samples"), "{text:?}");
+    let last = c.live_end(&speech(1_600), t).unwrap();
+    assert!(last.ends_with("samples"), "{last}");
+    // The stream is closed; the worker still transcribes normally.
+    assert!(c.live_push(&speech(10), t).is_err());
+    assert_eq!(c.transcribe(&[0.1; 16], t).unwrap(), "16 samples");
+}
+
+#[test]
+fn a_worker_crash_during_live_text_is_an_error_and_transcribe_recovers() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = loaded(&["--crash-first"], dir.path());
+    let t = Duration::from_secs(5);
+    c.live_begin(t).unwrap();
+    let err = c.live_push(&speech(8_000), t).unwrap_err();
+    assert!(matches!(err, ClientError::WorkerDied(_)), "{err}");
+    // The app then falls back to a normal transcription, which restarts the worker.
+    assert_eq!(c.transcribe(&vec![0.0; 320], t).unwrap(), "320 samples");
+    assert_eq!(c.restarts(), 1);
+}
+
+#[test]
+fn a_cancelled_stream_leaves_the_worker_usable() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = loaded(&[], dir.path());
+    let t = Duration::from_secs(5);
+    c.live_begin(t).unwrap();
+    c.live_push(&speech(1_600), t).unwrap();
+    c.live_cancel();
+    assert!(c.live_end(&[], t).is_err());
+    assert_eq!(c.transcribe(&[0.1; 16], t).unwrap(), "16 samples");
+}

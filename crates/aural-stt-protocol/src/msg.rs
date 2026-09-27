@@ -1,5 +1,6 @@
 //! Messages between app (client) and worker.
 
+use aural_engines::live::LiveMode;
 use aural_engines::{Backend, Engine};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -20,6 +21,23 @@ pub enum Request {
     },
     /// How much memory the worker uses (for the hardware test).
     Stats,
+    /// Open a live-text stream (one at a time; a new one replaces the old).
+    LiveBegin {
+        id: u64,
+    },
+    /// Followed by one PCM frame: audio recorded since the previous LiveAudio.
+    LiveAudio {
+        id: u64,
+        samples: u32,
+    },
+    /// Followed by one PCM frame with the last audio; answered with Transcript.
+    LiveEnd {
+        id: u64,
+        samples: u32,
+    },
+    LiveCancel {
+        id: u64,
+    },
     Shutdown,
 }
 
@@ -44,6 +62,16 @@ pub enum Response {
     Error {
         id: Option<u64>,
         message: String,
+    },
+    LiveStarted {
+        id: u64,
+        mode: LiveMode,
+    },
+    LiveText {
+        id: u64,
+        stable: String,
+        tentative: String,
+        ms: u64,
     },
     Stats {
         working_set_mb: u64,

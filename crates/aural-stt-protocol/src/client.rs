@@ -5,6 +5,7 @@
 use crate::codec::{read_msg, write_msg, write_pcm};
 use crate::msg::{Request, Response};
 use crate::PROTOCOL_VERSION;
+use aural_engines::live::{LiveMode, LiveText};
 use aural_engines::{Backend, Engine};
 use std::os::windows::io::{AsHandle, OwnedHandle};
 use std::path::PathBuf;
@@ -198,6 +199,8 @@ pub struct SttClient {
     backend: Option<String>,
     restarts: u32,
     next_id: u64,
+    /// Id of the open live stream.
+    live: Option<u64>,
     process: Arc<Mutex<Option<OwnedHandle>>>,
     stopped: Arc<AtomicBool>,
 }
@@ -213,6 +216,7 @@ impl SttClient {
             backend: None,
             restarts: 0,
             next_id: 1,
+            live: None,
             process: Arc::new(Mutex::new(None)),
             stopped: Arc::new(AtomicBool::new(false)),
         };
@@ -366,6 +370,97 @@ impl SttClient {
                     gpu_memory_mb,
                 });
             }
+        }
+    }
+
+    fn live_request(
+        &mut self,
+        req: Request,
+        pcm: Option<&[f32]>,
+        timeout: Duration,
+    ) -> Result<Response, ClientError> {
+        if self.is_stopped() {
+            return Err(ClientError::Stopped);
+        }
+        let want = match &req {
+            Request::LiveBegin { id }
+            | Request::LiveAudio { id, .. }
+            | Request::LiveEnd { id, .. } => *id,
+            _ => return Err(ClientError::Protocol("not a live request".into())),
+        };
+        let proc = self.proc.as_mut().ok_or(ClientError::NotLoaded)?;
+        proc.send(&req, pcm)?;
+        loop {
+            match proc.recv(timeout)? {
+                Response::Error {
+                    id: Some(got),
+                    message,
+                } if got == want => return Err(ClientError::Engine(message)),
+                r @ (Response::LiveStarted { id: got, .. }
+                | Response::LiveText { id: got, .. }
+                | Response::Transcript { id: got, .. })
+                    if got == want =>
+                {
+                    return Ok(r)
+                }
+                _ => continue,
+            }
+        }
+    }
+
+    /// Open a live-text stream. Live text is a preview: a failure is reported, never
+    /// retried, and the caller falls back to `transcribe` for the final text.
+    pub fn live_begin(&mut self, timeout: Duration) -> Result<LiveMode, ClientError> {
+        if self.loaded.is_none() {
+            return Err(ClientError::NotLoaded);
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        self.live = None;
+        match self.live_request(Request::LiveBegin { id }, None, timeout)? {
+            Response::LiveStarted { mode, .. } => {
+                self.live = Some(id);
+                Ok(mode)
+            }
+            other => Err(ClientError::Protocol(format!("unexpected {other:?}"))),
+        }
+    }
+
+    /// Send audio recorded since the last call; returns the text so far.
+    pub fn live_push(&mut self, pcm: &[f32], timeout: Duration) -> Result<LiveText, ClientError> {
+        let id = self.live.ok_or(ClientError::NotLoaded)?;
+        let req = Request::LiveAudio {
+            id,
+            samples: pcm.len() as u32,
+        };
+        match self.live_request(req, Some(pcm), timeout) {
+            Ok(Response::LiveText {
+                stable, tentative, ..
+            }) => Ok(LiveText { stable, tentative }),
+            Ok(other) => Err(ClientError::Protocol(format!("unexpected {other:?}"))),
+            Err(e) => {
+                self.live = None;
+                Err(e)
+            }
+        }
+    }
+
+    /// Send the last audio and close the stream; returns the final text.
+    pub fn live_end(&mut self, pcm: &[f32], timeout: Duration) -> Result<String, ClientError> {
+        let id = self.live.take().ok_or(ClientError::NotLoaded)?;
+        let req = Request::LiveEnd {
+            id,
+            samples: pcm.len() as u32,
+        };
+        match self.live_request(req, Some(pcm), timeout)? {
+            Response::Transcript { text, .. } => Ok(text),
+            other => Err(ClientError::Protocol(format!("unexpected {other:?}"))),
+        }
+    }
+
+    pub fn live_cancel(&mut self) {
+        if let (Some(id), Some(proc)) = (self.live.take(), self.proc.as_mut()) {
+            let _ = proc.send(&Request::LiveCancel { id }, None);
         }
     }
 

@@ -10,4 +10,5 @@ pub mod worker;
 
 /// Bumped on any incompatible change to `msg`.
 /// 2: adds `Stats`.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// 3: adds live text (`LiveBegin`, `LiveAudio`, `LiveEnd`, `LiveCancel`).
+pub const PROTOCOL_VERSION: u32 = 3;

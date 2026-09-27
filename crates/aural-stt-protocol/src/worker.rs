@@ -4,6 +4,7 @@ use crate::codec::{read_msg, read_pcm, write_msg};
 use crate::msg::{Request, Response};
 use crate::PROTOCOL_VERSION;
 use anyhow::Result;
+use aural_engines::live::LiveSession;
 use aural_engines::{Backend, Engine, Transcriber};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -26,6 +27,7 @@ pub fn serve<R: Read, W: Write>(
         },
     )?;
     let mut engine: Option<Box<dyn Transcriber>> = None;
+    let mut live: Option<(u64, LiveSession)> = None;
     while let Some(req) = read_msg::<_, Request>(&mut input)? {
         match req {
             Request::Load {
@@ -35,6 +37,7 @@ pub fn serve<R: Read, W: Write>(
                 threads,
             } => {
                 let t0 = Instant::now();
+                live = None;
                 engine = None; // free the previous model first
                 match build(&model, kind, backend, threads) {
                     Ok(e) => {
@@ -79,6 +82,71 @@ pub fn serve<R: Read, W: Write>(
                 };
                 write_msg(output, &resp)?;
             }
+            Request::LiveBegin { id } => {
+                live = None;
+                let resp = match engine.as_mut() {
+                    None => no_model(id),
+                    Some(e) => match LiveSession::begin(e.as_mut()) {
+                        Ok(s) => {
+                            let mode = s.mode();
+                            live = Some((id, s));
+                            Response::LiveStarted { id, mode }
+                        }
+                        Err(err) => engine_error(id, err),
+                    },
+                };
+                write_msg(output, &resp)?;
+            }
+            Request::LiveAudio { id, samples } => {
+                let pcm = read_pcm(&mut input, samples as usize)?;
+                let t0 = Instant::now();
+                let resp = match (engine.as_mut(), live.as_mut()) {
+                    (Some(e), Some((open, s))) if *open == id => match s.push(e.as_mut(), &pcm) {
+                        Ok(text) => Response::LiveText {
+                            id,
+                            stable: text.stable,
+                            tentative: text.tentative,
+                            ms: t0.elapsed().as_millis() as u64,
+                        },
+                        Err(err) => {
+                            live = None; // a failed stream is over; the app falls back
+                            engine_error(id, err)
+                        }
+                    },
+                    _ => no_stream(id),
+                };
+                write_msg(output, &resp)?;
+            }
+            Request::LiveEnd { id, samples } => {
+                let pcm = read_pcm(&mut input, samples as usize)?;
+                let t0 = Instant::now();
+                let resp = match (engine.as_mut(), live.take()) {
+                    (Some(e), Some((open, mut s))) if open == id => {
+                        match s.push(e.as_mut(), &pcm).and_then(|_| s.finish(e.as_mut())) {
+                            Ok(text) => Response::Transcript {
+                                id,
+                                text,
+                                ms: t0.elapsed().as_millis() as u64,
+                            },
+                            Err(err) => engine_error(id, err),
+                        }
+                    }
+                    (_, other) => {
+                        live = other;
+                        no_stream(id)
+                    }
+                };
+                write_msg(output, &resp)?;
+            }
+            Request::LiveCancel { id } => {
+                if let (Some(e), Some((open, s))) = (engine.as_mut(), live.take()) {
+                    if open == id {
+                        s.cancel(e.as_mut());
+                    } else {
+                        live = Some((open, s));
+                    }
+                }
+            }
             Request::Stats => {
                 let (working_set_mb, peak_working_set_mb) = process_memory_mb();
                 write_msg(
@@ -94,6 +162,27 @@ pub fn serve<R: Read, W: Write>(
         }
     }
     Ok(())
+}
+
+fn no_model(id: u64) -> Response {
+    Response::Error {
+        id: Some(id),
+        message: "no model is loaded".into(),
+    }
+}
+
+fn no_stream(id: u64) -> Response {
+    Response::Error {
+        id: Some(id),
+        message: "no live stream is open".into(),
+    }
+}
+
+fn engine_error(id: u64, err: anyhow::Error) -> Response {
+    Response::Error {
+        id: Some(id),
+        message: format!("{err:#}"),
+    }
 }
 
 /// Current and peak working set of this process, in MB.
@@ -228,6 +317,87 @@ mod tests {
         assert!(
             matches!(&out[1], Response::Error { id: None, message } if message.contains("missing"))
         );
+    }
+
+    fn loud(n: usize) -> Vec<f32> {
+        (0..n).map(|i| (i as f32 * 0.07).sin() * 0.3).collect()
+    }
+
+    #[test]
+    fn live_stream_gives_text_while_audio_arrives_then_one_final_transcript() {
+        let out = run(
+            vec![
+                (load(), None),
+                (Request::LiveBegin { id: 7 }, None),
+                (
+                    Request::LiveAudio {
+                        id: 7,
+                        samples: 8_000,
+                    },
+                    Some(loud(8_000)),
+                ),
+                (
+                    Request::LiveEnd {
+                        id: 7,
+                        samples: 1_600,
+                    },
+                    Some(loud(1_600)),
+                ),
+            ],
+            false,
+        );
+        assert!(matches!(
+            &out[2],
+            Response::LiveStarted {
+                id: 7,
+                mode: aural_engines::live::LiveMode::Phrases
+            }
+        ));
+        assert!(
+            matches!(&out[3], Response::LiveText { id: 7, tentative, .. } if tentative.contains("samples")),
+            "{:?}",
+            out[3]
+        );
+        // The final text covers all the audio, read once.
+        assert!(
+            matches!(&out[4], Response::Transcript { id: 7, text, .. } if text.ends_with("samples")),
+            "{:?}",
+            out[4]
+        );
+        assert_eq!(out.len(), 5);
+    }
+
+    #[test]
+    fn live_audio_without_an_open_stream_is_an_error_not_a_crash() {
+        let out = run(
+            vec![
+                (load(), None),
+                (Request::LiveAudio { id: 1, samples: 4 }, Some(vec![0.0; 4])),
+                (Request::LiveBegin { id: 2 }, None),
+                (Request::LiveEnd { id: 3, samples: 4 }, Some(vec![0.0; 4])),
+                // The stream opened as 2 is still usable after the stray end.
+                (Request::LiveEnd { id: 2, samples: 4 }, Some(vec![0.0; 4])),
+            ],
+            false,
+        );
+        assert!(matches!(&out[2], Response::Error { id: Some(1), .. }));
+        assert!(matches!(&out[4], Response::Error { id: Some(3), .. }));
+        assert!(matches!(&out[5], Response::Transcript { id: 2, .. }));
+    }
+
+    #[test]
+    fn a_cancelled_stream_is_closed() {
+        let out = run(
+            vec![
+                (load(), None),
+                (Request::LiveBegin { id: 4 }, None),
+                (Request::LiveCancel { id: 4 }, None),
+                (Request::LiveEnd { id: 4, samples: 4 }, Some(vec![0.0; 4])),
+            ],
+            false,
+        );
+        assert!(matches!(&out[3], Response::Error { id: Some(4), .. }));
+        assert_eq!(out.len(), 4, "cancel itself has no reply");
     }
 
     #[test]
