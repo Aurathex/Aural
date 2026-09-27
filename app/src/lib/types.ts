@@ -7,7 +7,7 @@ export interface Settings {
   schema_version: number;
   hotkey: { keys: string[]; mode: HotkeyMode };
   audio: { device: string | null };
-  stt: { active_model: string | null };
+  stt: { active_model: string | null; active_variant: string | null };
   startup: { launch_at_login: boolean };
   ui: { pill_position: PillPosition; sounds: boolean };
 }

@@ -69,7 +69,7 @@
             <span class="badge">In use</span>
           {:else if m.state.kind === "installed"}
             <button class="btn quiet" disabled={busy === m.id} onclick={() => act("remove_model", m.id)}>Remove</button>
-            <button class="btn primary" disabled={busy === m.id} onclick={() => act("use_model", m.id)}>Use</button>
+            <button class="btn primary" disabled={busy === m.id} onclick={() => act("use_variant", `${m.id}@cpu`)}>Use</button>
           {:else if m.state.kind === "downloading"}
             <button class="btn" onclick={() => cancel(m)}>Cancel</button>
           {:else}

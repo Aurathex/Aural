@@ -59,9 +59,9 @@ pub fn save_settings(app: State<'_, Arc<App>>, settings: Settings) -> Res<AppSta
         return Err(why);
     }
     let old = app.settings();
-    if let Some(id) = &settings.stt.active_model {
-        if app.catalog.get(id).is_none() {
-            return Err(format!("unknown model {id}"));
+    if let Some(id) = &settings.stt.active_variant {
+        if app.catalog.variant(id).is_none() {
+            return Err(format!("unknown model variant {id}"));
         }
     }
     if old.startup.launch_at_login != settings.startup.launch_at_login {
@@ -81,7 +81,7 @@ pub fn save_settings(app: State<'_, Arc<App>>, settings: Settings) -> Res<AppSta
     if old.hotkey.mode != settings.hotkey.mode {
         app.send(Control::SetMode(settings.hotkey.mode));
     }
-    let model_changed = old.stt.active_model != settings.stt.active_model;
+    let model_changed = old.stt.active_variant != settings.stt.active_variant;
     app.save_settings(settings).map_err(err)?;
     if model_changed {
         app.reload_engine();
@@ -144,6 +144,7 @@ pub fn download_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> 
                     .is_some_and(|m| app2.store.is_installed(m));
                 if !active_ok {
                     s.stt.active_model = Some(entry.id.clone());
+                    s.stt.active_variant = Some(entry.variant_id(aural_engines::Backend::Cpu));
                     if app2.save_settings(s).is_ok() {
                         app2.reload_engine();
                     }
@@ -181,17 +182,19 @@ pub fn remove_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
     Ok(app.snapshot())
 }
 
+/// Use a model variant (`<model id>@<backend>`) for dictation.
 #[tauri::command]
-pub fn use_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
-    let entry = app
+pub fn use_variant(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
+    let (entry, _) = app
         .catalog
-        .get(&id)
-        .ok_or_else(|| format!("unknown model {id}"))?;
+        .variant(&id)
+        .ok_or_else(|| format!("unknown model variant {id}"))?;
     if !app.store.is_installed(entry) {
         return Err(format!("{} is not downloaded yet", entry.name));
     }
     let mut s = app.settings();
-    s.stt.active_model = Some(id);
+    s.stt.active_model = Some(entry.id.clone());
+    s.stt.active_variant = Some(id);
     app.save_settings(s).map_err(err)?;
     app.reload_engine();
     Ok(app.snapshot())

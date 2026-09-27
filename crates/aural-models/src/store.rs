@@ -2,7 +2,7 @@
 //! catalog entry and every file is present at the expected size; the receipt is
 //! written last on install and deleted first on removal.
 
-use crate::catalog::{Catalog, ModelEntry, ModelFile};
+use crate::catalog::{split_variant_id, Backend, Catalog, ModelEntry, ModelFile};
 use crate::recommend::{compatible, recommend, HardwareProfile};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -124,27 +124,44 @@ pub struct ModelStatus {
     pub attribution: String,
 }
 
-/// The model to use: the chosen one if it is installed, otherwise the recommended one
-/// if installed, otherwise any installed model, otherwise none. Used at startup so a
-/// lost or stale choice doesn't hide a model that is already on disk.
-pub fn usable_model(
+/// The variant to use (`<model>@<backend>`): the chosen one if its model is installed
+/// and the catalog still has that variant; otherwise the same model on the CPU; otherwise
+/// the recommended installed model on the CPU; otherwise any installed model on the CPU;
+/// otherwise none. Used at startup so a lost or stale choice doesn't hide a model that
+/// is already on disk.
+pub fn usable_variant(
     catalog: &Catalog,
     store: &ModelStore,
     chosen: Option<&str>,
     hw: &HardwareProfile,
 ) -> Option<String> {
     let installed = |id: &str| catalog.get(id).is_some_and(|m| store.is_installed(m));
-    if let Some(c) = chosen.filter(|c| installed(c)) {
-        return Some(c.to_owned());
+    let cpu = |id: &str| {
+        catalog
+            .get(id)
+            .filter(|m| m.variant(Backend::Cpu).is_some())
+            .map(|m| m.variant_id(Backend::Cpu))
+    };
+    if let Some(c) = chosen {
+        if catalog.variant(c).is_some_and(|(m, _)| installed(&m.id)) {
+            return Some(c.to_owned());
+        }
+        if let Some((model, _)) = split_variant_id(c).filter(|(m, _)| installed(m)) {
+            if let Some(v) = cpu(model) {
+                return Some(v);
+            }
+        }
     }
     if let Some(r) = recommend(catalog, hw).filter(|r| installed(r)) {
-        return Some(r.to_owned());
+        if let Some(v) = cpu(r) {
+            return Some(v);
+        }
     }
     catalog
         .models
         .iter()
-        .find(|m| store.is_installed(m))
-        .map(|m| m.id.clone())
+        .filter(|m| store.is_installed(m))
+        .find_map(|m| cpu(&m.id))
 }
 
 /// Status of every catalog model for the Models page.
@@ -217,15 +234,15 @@ mod tests {
     };
 
     #[test]
-    fn the_chosen_model_is_kept_when_it_is_installed() {
+    fn the_chosen_variant_is_kept_when_its_model_is_installed() {
         let root = tempfile::tempdir().unwrap();
         let store = ModelStore::new(root.path());
         let c = catalog();
         fake_install(&store, c.get("whisper-base.en-q8").unwrap());
         fake_install(&store, c.get("parakeet-tdt-0.6b-v2-int8").unwrap());
         assert_eq!(
-            usable_model(&c, &store, Some("whisper-base.en-q8"), &HW).as_deref(),
-            Some("whisper-base.en-q8")
+            usable_variant(&c, &store, Some("whisper-base.en-q8@cpu"), &HW).as_deref(),
+            Some("whisper-base.en-q8@cpu")
         );
     }
 
@@ -238,13 +255,25 @@ mod tests {
         let c = catalog();
         fake_install(&store, c.get("whisper-base.en-q8").unwrap());
         assert_eq!(
-            usable_model(&c, &store, None, &HW).as_deref(),
-            Some("whisper-base.en-q8")
+            usable_variant(&c, &store, None, &HW).as_deref(),
+            Some("whisper-base.en-q8@cpu")
         );
         assert_eq!(
-            usable_model(&c, &store, Some("parakeet-tdt-0.6b-v2-int8"), &HW).as_deref(),
-            Some("whisper-base.en-q8"),
+            usable_variant(&c, &store, Some("parakeet-tdt-0.6b-v2-int8@cpu"), &HW).as_deref(),
+            Some("whisper-base.en-q8@cpu"),
             "chosen model no longer installed"
+        );
+    }
+
+    #[test]
+    fn a_variant_the_catalog_no_longer_has_falls_back_to_the_cpu() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = catalog();
+        fake_install(&store, c.get("parakeet-tdt-0.6b-v2-int8").unwrap());
+        assert_eq!(
+            usable_variant(&c, &store, Some("parakeet-tdt-0.6b-v2-int8@vulkan"), &HW).as_deref(),
+            Some("parakeet-tdt-0.6b-v2-int8@cpu")
         );
     }
 
@@ -256,9 +285,9 @@ mod tests {
         for m in &c.models {
             fake_install(&store, m);
         }
-        let recommended = crate::recommend::recommend(&c, &HW).map(str::to_owned);
+        let recommended = crate::recommend::recommend(&c, &HW).map(|m| format!("{m}@cpu"));
         assert!(recommended.is_some());
-        assert_eq!(usable_model(&c, &store, None, &HW), recommended);
+        assert_eq!(usable_variant(&c, &store, None, &HW), recommended);
     }
 
     #[test]
@@ -266,11 +295,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let store = ModelStore::new(root.path());
         assert_eq!(
-            usable_model(&catalog(), &store, Some("whisper-base.en-q8"), &HW),
+            usable_variant(&catalog(), &store, Some("whisper-base.en-q8@cpu"), &HW),
             None
         );
     }
-
     #[test]
     fn a_model_that_is_downloading_cannot_be_removed() {
         let root = tempfile::tempdir().unwrap();

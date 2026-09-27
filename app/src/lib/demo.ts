@@ -14,7 +14,7 @@ const settings: Settings = {
   schema_version: 1,
   hotkey: { keys: ["Ctrl", "Win"], mode: "push_to_talk" },
   audio: { device: null },
-  stt: { active_model: null },
+  stt: { active_model: null, active_variant: null },
   startup: { launch_at_login: false },
   ui: { pill_position: "bottom", sounds: true },
 };
@@ -123,6 +123,7 @@ export const demo = {
               m.removable = m.state.kind === "installed";
               if (!state.settings.stt.active_model) {
                 state.settings.stt.active_model = m.id;
+                state.settings.stt.active_variant = `${m.id}@cpu`;
                 state.engine = { state: "ready", model: m.id, label: m.name, backend: "cpu" };
               }
               emit("state-changed", structuredClone(state));
@@ -131,12 +132,15 @@ export const demo = {
         }
         return structuredClone(state) as T;
       }
-      case "use_model": {
+      case "use_variant": {
+        const variant = args?.id as string;
+        const model = variant.split("@")[0] ?? variant;
         for (const m of state.models) {
           if (m.state.kind === "active") { m.state = { kind: "installed" }; m.removable = true; }
-          if (m.id === args?.id) { m.state = { kind: "active" }; m.removable = false; }
+          if (m.id === model) { m.state = { kind: "active" }; m.removable = false; }
         }
-        state.settings.stt.active_model = args?.id as string;
+        state.settings.stt.active_model = model;
+        state.settings.stt.active_variant = variant;
         return structuredClone(state) as T;
       }
       case "remove_model": {

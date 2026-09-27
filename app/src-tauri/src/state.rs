@@ -126,12 +126,16 @@ impl App {
     pub fn reload_engine(self: &Arc<Self>) {
         let app = self.clone();
         std::thread::spawn(move || {
-            let active = app.settings().stt.active_model;
-            match active.and_then(|id| app.catalog.get(&id).cloned()) {
-                Some(entry) if app.store.is_installed(&entry) => {
+            let active = app.settings().stt.active_variant;
+            let chosen = active
+                .as_deref()
+                .and_then(|id| app.catalog.variant(id))
+                .map(|(entry, v)| (entry.clone(), v.backend));
+            match chosen {
+                Some((entry, backend)) if app.store.is_installed(&entry) => {
                     app.engine.mark_loading(&entry.id);
                     app.broadcast();
-                    app.engine.load(&entry, &app.store);
+                    app.engine.load(&entry, backend, &app.store);
                 }
                 _ => app.engine.unload(),
             }

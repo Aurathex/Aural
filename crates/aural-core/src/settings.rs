@@ -67,8 +67,18 @@ pub struct AudioSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SttSettings {
-    /// Catalog id of the model used for dictation.
+    /// Catalog id of the model used for dictation (kept in step with ctive_variant).
     pub active_model: Option<String>,
+    /// The model variant used for dictation: `<model id>@<backend>`.
+    pub active_variant: Option<String>,
+}
+
+/// v0.1 saved only a model and ran everything on the CPU: give such settings the
+/// matching CPU variant. A variant that is already chosen is left alone.
+pub fn migrate_active_variant(s: &mut Settings) {
+    if s.stt.active_variant.is_none() {
+        s.stt.active_variant = s.stt.active_model.as_ref().map(|m| format!("{m}@cpu"));
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +176,38 @@ mod tests {
         assert_eq!(s.audio.device, None);
         assert_eq!(s.stt.active_model, None);
         assert_eq!(s.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn v01_settings_get_a_cpu_variant() {
+        let mut s: Settings = serde_json::from_str(
+            r#"{"schema_version":1,"stt":{"active_model":"parakeet-tdt-0.6b-v2-int8"}}"#,
+        )
+        .unwrap();
+        migrate_active_variant(&mut s);
+        assert_eq!(
+            s.stt.active_variant.as_deref(),
+            Some("parakeet-tdt-0.6b-v2-int8@cpu")
+        );
+    }
+
+    #[test]
+    fn an_existing_variant_choice_is_left_alone() {
+        let mut s = Settings::default();
+        s.stt.active_model = Some("whisper-small.en-q8".into());
+        s.stt.active_variant = Some("whisper-small.en-q8@vulkan".into());
+        migrate_active_variant(&mut s);
+        assert_eq!(
+            s.stt.active_variant.as_deref(),
+            Some("whisper-small.en-q8@vulkan")
+        );
+    }
+
+    #[test]
+    fn no_model_means_no_variant() {
+        let mut s = Settings::default();
+        migrate_active_variant(&mut s);
+        assert_eq!(s.stt.active_variant, None);
     }
 
     #[test]

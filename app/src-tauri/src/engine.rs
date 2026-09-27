@@ -110,9 +110,10 @@ impl EngineHost {
         self.set_status(EngineStatus::NoModel);
     }
 
-    /// Start a fresh worker for `entry` and load it (blocking; call off the UI thread).
-    /// The client lock is only taken briefly to swap workers, never during the load.
-    pub fn load(&self, entry: &ModelEntry, store: &ModelStore) {
+    /// Start a fresh worker for `entry` on `backend` and load it (blocking; call off the
+    /// UI thread). The client lock is only taken briefly to swap workers, never during
+    /// the load.
+    pub fn load(&self, entry: &ModelEntry, backend: Backend, store: &ModelStore) {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.stop_current();
         self.set_status(EngineStatus::Loading {
@@ -133,7 +134,7 @@ impl EngineHost {
             c.load(
                 model_path,
                 entry.engine,
-                Backend::Cpu,
+                backend,
                 threads(),
                 Duration::from_secs(180),
             )?;

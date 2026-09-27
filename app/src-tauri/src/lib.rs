@@ -46,10 +46,18 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
     let store = ModelStore::new(&paths.models_dir());
     let catalog = Catalog::builtin();
     let hw = HardwareProfile::detect();
+    let before = s.stt.clone();
+    settings::migrate_active_variant(&mut s);
     let usable =
-        aural_models::store::usable_model(&catalog, &store, s.stt.active_model.as_deref(), &hw);
-    if usable.is_some() && usable != s.stt.active_model {
-        s.stt.active_model = usable;
+        aural_models::store::usable_variant(&catalog, &store, s.stt.active_variant.as_deref(), &hw);
+    if usable.is_some() {
+        s.stt.active_model = usable
+            .as_deref()
+            .and_then(aural_models::catalog::split_variant_id)
+            .map(|(m, _)| m.to_owned());
+        s.stt.active_variant = usable;
+    }
+    if s.stt != before {
         let _ = settings::save(&paths.settings_file(), &s);
     }
 
@@ -174,7 +182,7 @@ pub fn run() {
             commands::download_model,
             commands::cancel_download,
             commands::remove_model,
-            commands::use_model,
+            commands::use_variant,
             commands::mic_test_start,
             commands::mic_test_stop,
             commands::open_mic_privacy,
