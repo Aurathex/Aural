@@ -1,6 +1,6 @@
 <script lang="ts">
   import { call } from "../lib/api";
-  import { labelText, placeText, stepText, variantBackend } from "../lib/copy";
+  import { backgroundMeasuring, labelText, placeText, stepText, variantBackend } from "../lib/copy";
   import type { AppState } from "../lib/types";
 
   let { app, update }: { app: AppState; update: (next: AppState) => void } = $props();
@@ -27,6 +27,10 @@
     const where = placeText(variantBackend(recommended)).replace("On", "on");
     return `For this PC, Aural recommends ${name} ${where}. ${labelText({ label: "recommended" }).hint}.`;
   });
+
+  const background = $derived(
+    backgroundMeasuring(t, t.step?.step === "measuring" ? modelName(t.step.variant) : undefined),
+  );
 
   async function start(allowDownload: boolean) {
     error = null;
@@ -68,6 +72,7 @@
     <p aria-live="polite">{summary}</p>
     <div class="buttons"><button class="btn quiet" onclick={() => start(true)}>Check my PC again</button></div>
   {/if}
+  {#if background}<p class="live" aria-live="polite">{background}</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </section>
 

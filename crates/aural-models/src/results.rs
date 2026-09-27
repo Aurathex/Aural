@@ -17,6 +17,8 @@ struct ResultsFile {
     fingerprint: String,
     calibrations: Vec<Calibration>,
     results: BTreeMap<String, VariantResult>,
+    /// A full hardware check finished on this hardware (not just a measured download).
+    checked: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +103,16 @@ impl ResultsStore {
 
     pub fn results(&self) -> impl Iterator<Item = &VariantResult> {
         self.file.results.values()
+    }
+
+    /// A full check has finished for this hardware. (Files from before this flag count
+    /// as checked when they hold calibrations.)
+    pub fn checked(&self) -> bool {
+        self.file.checked || !self.file.calibrations.is_empty()
+    }
+
+    pub fn mark_checked(&mut self) {
+        self.file.checked = true;
     }
 
     pub fn calibrations(&self) -> &[Calibration] {

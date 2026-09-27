@@ -25,12 +25,18 @@ pub fn evaluate(
     words: usize,
 ) -> Evaluation {
     let calibrations = calibrations(catalog, store);
+    let stale = store.is_stale(hw);
     let mut rows = Vec::new();
     for model in catalog.models.iter().filter(|m| !m.probe) {
         for v in &model.variants {
             let result = store
                 .get(&model.variant_id(v.backend))
                 .cloned()
+                // Measured on different hardware (new card, driver): only a guess now.
+                .map(|mut r| {
+                    r.measured &= !stale;
+                    r
+                })
                 .or_else(|| estimate(model, v, &calibrations, hw));
             if let Some(r) = result {
                 rows.push((model.clone(), v.clone(), r));
@@ -375,6 +381,7 @@ impl TestRun {
             return;
         }
         store.reset_for(hw);
+        store.mark_checked();
         store.set_calibrations(self.calibrations.clone());
         for r in &self.results {
             store.put(r.clone());
@@ -406,7 +413,7 @@ impl HwTest {
     pub fn status(&self, hw: &HardwareProfile) -> HwTestStatus {
         let results = lock(&self.results);
         HwTestStatus {
-            tested: results.calibrations().len() + results.results().count() > 0,
+            tested: results.checked(),
             stale: results.is_stale(hw),
             ..lock(&self.status).clone()
         }
@@ -742,6 +749,10 @@ pub fn after_load_failure(app: &Arc<App>, variant: &str, message: &str) {
 }
 /// Keeps the user's model unless it now won't work well here; then switches and says so.
 fn apply_active_policy(app: &Arc<App>) {
+    // Results from other hardware aren't a reason to switch; the user is asked to re-check.
+    if lock(&app.hwtest.results).is_stale(&app.hw) {
+        return;
+    }
     let e = evaluation(app);
     let current = app.settings().stt.active_variant;
     let installed = |id: &str| {
@@ -1093,6 +1104,53 @@ mod tests {
         run.commit_if_complete(&mut store, &laptop(true), true);
         assert!(store.get(PK_CPU).is_none());
         assert!(store.get(SMALL_CPU).is_some());
+    }
+
+    #[test]
+    fn results_from_other_hardware_are_shown_as_expected_not_measured() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ResultsStore::load(&dir.path().join("hardware.json")).unwrap();
+        store.reset_for(&laptop(true));
+        store.put(VariantResult {
+            variant: PK_CPU.into(),
+            metrics: Some(aural_eval::metrics::RunMetrics {
+                wer: 0.005,
+                words: 396,
+                p50_ms: 350,
+                p95_ms: 500,
+                rtf: 0.05,
+            }),
+            load_ms: 1_800,
+            ram_mb: 770,
+            vram_mb: None,
+            spread: 1.3,
+            passes: 3,
+            stability: aural_models::Stability::Stable,
+            measured: true,
+            error: None,
+        });
+        // Same PC: measured.
+        let e = evaluate(&Catalog::builtin(), &store, &laptop(true), 396);
+        assert!(e.results.iter().any(|r| r.variant == PK_CPU && r.measured));
+        // The graphics card was removed since: not "Measured on your PC" any more.
+        let e = evaluate(&Catalog::builtin(), &store, &laptop(false), 396);
+        let pk = e.results.iter().find(|r| r.variant == PK_CPU).unwrap();
+        assert!(!pk.measured);
+    }
+
+    #[test]
+    fn a_finished_check_counts_even_without_test_models() {
+        // "Check without downloading" on a PC with no model: nothing to measure, but the
+        // check happened, so the first-run prompt must not come back.
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ResultsStore::load(&dir.path().join("hardware.json")).unwrap();
+        assert!(!store.checked());
+        TestRun::default().commit_if_complete(&mut store, &laptop(false), true);
+        assert!(store.checked());
+        // A measurement after a download alone is not a check.
+        let mut other = ResultsStore::load(&dir.path().join("other.json")).unwrap();
+        other.adopt(&laptop(false));
+        assert!(!other.checked());
     }
 
     #[test]

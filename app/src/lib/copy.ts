@@ -1,7 +1,7 @@
 // Everyday wording for the Models page and the Hardware Test (spec §5.1). Technical
 // terms appear only inside "Technical details"; the tests scan for them.
 
-import type { Backend, Hardware, HwStep, Label, Reason } from "./types";
+import type { Backend, Hardware, HwStep, HwTestStatus, Label, Reason } from "./types";
 
 /** Words a non-technical person shouldn't meet outside "Technical details". */
 export const JARGON: readonly string[] = [
@@ -181,4 +181,10 @@ export function stepText(s: HwStep, modelName?: string): string {
     case "done":
       return "Done";
   }
+}
+
+/** A newly downloaded model being tried outside a full check, or null. */
+export function backgroundMeasuring(s: HwTestStatus, modelName?: string): string | null {
+  if (s.running || s.step?.step !== "measuring") return null;
+  return `${stepText(s.step, modelName)} You can keep dictating.`;
 }

@@ -13,6 +13,7 @@ import {
   startupText,
   stepText,
   userFacingText,
+  backgroundMeasuring,
 } from "./copy";
 import type { Label, Reason } from "./types";
 
@@ -120,6 +121,18 @@ describe("plain-language copy", () => {
       expect(s.length).toBeGreaterThan(3);
       expect(hasJargon(s), s).toBe(false);
     }
+  });
+
+  it("says when a downloaded model is being tried in the background", () => {
+    const base = { running: false, done: 0, total: 0, tested: true, stale: false };
+    const measuring = { ...base, step: { step: "measuring" as const, variant: "moonshine-base-int8@cpu" } };
+    expect(backgroundMeasuring(measuring, "Moonshine base")).toBe(
+      "Trying Moonshine base on your processor… You can keep dictating.",
+    );
+    // A full check shows its own progress; idle shows nothing.
+    expect(backgroundMeasuring({ ...measuring, running: true }, "Moonshine base")).toBeNull();
+    expect(backgroundMeasuring({ ...base, step: null }, "x")).toBeNull();
+    expect(hasJargon(backgroundMeasuring(measuring, "Moonshine base") ?? "")).toBe(false);
   });
 
   it("flags jargon as whole words only", () => {
