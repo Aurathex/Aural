@@ -150,8 +150,14 @@ fn cancel_stops_between_clips() {
     let dir = tempfile::tempdir().unwrap();
     let cancel = Arc::new(AtomicBool::new(false));
     let flag = cancel.clone();
+    // Cancel once the first clip is done (not on a timer: starting the worker can be
+    // slow when many tests start processes at once).
+    let calls_path = dir.path().join("calls");
     let t = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(900));
+        let started = std::time::Instant::now();
+        while !calls_path.exists() && started.elapsed() < std::time::Duration::from_secs(60) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         flag.store(true, Ordering::SeqCst);
     });
     let r = benchmark_variant(
