@@ -17,6 +17,9 @@ pub struct Settings {
     pub startup: StartupSettings,
     pub ui: UiSettings,
     pub live: LiveSettings,
+    pub text: TextSettings,
+    pub apps: Vec<AppProfile>,
+    pub history: HistorySettings,
 }
 
 impl Default for Settings {
@@ -29,6 +32,9 @@ impl Default for Settings {
             startup: StartupSettings::default(),
             ui: UiSettings::default(),
             live: LiveSettings::default(),
+            text: TextSettings::default(),
+            apps: Vec::new(),
+            history: HistorySettings::default(),
         }
     }
 }
@@ -109,6 +115,74 @@ impl Default for UiSettings {
         Self {
             pill_position: PillPosition::Bottom,
             sounds: true,
+        }
+    }
+}
+
+/// How dictated text is tidied before it is typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupMode {
+    /// Exactly what the speech model wrote (plus your dictionary).
+    #[default]
+    Off,
+    /// Remove "um"/"uh", fix spacing and the first capital. No model needed.
+    Light,
+    /// A local language model smooths the wording; checked so it can't change numbers,
+    /// links, code or meaning, else the light result is used.
+    Ai,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextSettings {
+    pub cleanup: CleanupMode,
+    /// Apply the personal dictionary.
+    pub dictionary: bool,
+    /// Catalog id of the downloaded text model used by AI cleanup.
+    pub ai_model: Option<String>,
+}
+
+impl Default for TextSettings {
+    fn default() -> Self {
+        Self {
+            cleanup: CleanupMode::Off,
+            dictionary: true,
+            ai_model: None,
+        }
+    }
+}
+
+/// Settings for one app, by its program file name (e.g. "slack.exe"). Anything left
+/// unset follows the general settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AppProfile {
+    pub app: String,
+    pub cleanup: Option<CleanupMode>,
+    pub dictionary: Option<bool>,
+    pub live: Option<bool>,
+    /// Keep dictations in this app out of history (password managers, banking).
+    pub history: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HistorySettings {
+    /// Keep a searchable list of what you dictated (text only, never audio).
+    pub enabled: bool,
+    /// Days to keep entries; 0 keeps them until you delete them.
+    pub keep_days: u32,
+    /// Count dictations, words and time for the statistics (no text).
+    pub stats: bool,
+}
+
+impl Default for HistorySettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            keep_days: 30,
+            stats: true,
         }
     }
 }
@@ -223,6 +297,19 @@ mod tests {
         let mut s = Settings::default();
         migrate_active_variant(&mut s);
         assert_eq!(s.stt.active_variant, None);
+    }
+
+    #[test]
+    fn new_text_features_keep_v02_output_unless_turned_on() {
+        let old: Settings = serde_json::from_str(r#"{"schema_version":1}"#).unwrap();
+        assert_eq!(old.text.cleanup, CleanupMode::Off);
+        assert!(old.text.dictionary);
+        assert!(old.apps.is_empty());
+        assert!(old.history.enabled);
+        assert_eq!(old.history.keep_days, 30);
+        let p: AppProfile = serde_json::from_str(r#"{"app":"slack.exe","cleanup":"ai"}"#).unwrap();
+        assert_eq!(p.cleanup, Some(CleanupMode::Ai));
+        assert_eq!(p.history, None);
     }
 
     #[test]

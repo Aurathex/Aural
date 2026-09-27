@@ -9,6 +9,7 @@ members = [
   "crates/aural-models",
   "crates/aural-platform",
   "crates/aural-stt-protocol",
+  "crates/aural-text",
   "tools/bench",
   "workers/stt-onnx",
   "workers/stt-ggml",
@@ -26,6 +27,7 @@ default-members = [
   "crates/aural-models",
   "crates/aural-platform",
   "crates/aural-stt-protocol",
+  "crates/aural-text",
   "tools/bench",
 ]
 

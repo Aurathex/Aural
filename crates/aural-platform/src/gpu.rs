@@ -307,4 +307,37 @@ mod tests {
         let mb = process_gpu_memory_mb();
         assert!(mb.is_some(), "DXGI video-memory query failed");
     }
+
+    /// Real adapters of the AMD test PC (Ryzen 7 9800X3D + Radeon RX 9070 XT, driver
+    /// registry memory sizes read on that PC): the processor's Radeon graphics must count
+    /// as built-in and the RX 9070 XT must be the card Aural picks.
+    #[test]
+    fn ryzen_radeon_graphics_is_built_in_and_the_rx_9070_xt_is_chosen() {
+        let igpu = is_integrated(Vendor::Amd, 512, 15_900);
+        let dgpu = is_integrated(Vendor::Amd, 16_304, 15_900);
+        assert!(igpu);
+        assert!(!dgpu);
+        let gpus = [
+            GpuInfo {
+                name: "AMD Radeon(TM) Graphics".into(),
+                vendor: Vendor::Amd,
+                vram_mb: 512,
+                integrated: igpu,
+                driver: "32.0.21045.5002".into(),
+                luid: 1,
+            },
+            GpuInfo {
+                name: "AMD Radeon RX 9070 XT".into(),
+                vendor: Vendor::Amd,
+                vram_mb: 16_304,
+                integrated: dgpu,
+                driver: "32.0.31041.1004".into(),
+                luid: 2,
+            },
+        ];
+        assert_eq!(
+            primary_discrete(&gpus).unwrap().name,
+            "AMD Radeon RX 9070 XT"
+        );
+    }
 }

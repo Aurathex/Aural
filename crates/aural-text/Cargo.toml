@@ -1,0 +1,19 @@
+[package]
+name = "aural-text"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Aural's text pipeline and local data: dictionary, cleanup, app profiles, personal learning, history and statistics. Pure Rust, no OS calls."
+
+[dependencies]
+anyhow = "1.0.104"
+aural-core = { path = "../aural-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.151"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints]
+workspace = true
