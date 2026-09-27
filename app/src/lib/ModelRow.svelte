@@ -149,6 +149,7 @@
   .vtext { flex: 1; min-width: 0; }
   .where { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; }
   .chip {
+    position: relative;
     font-size: 11px;
     font-weight: 600;
     padding: 1px 8px;

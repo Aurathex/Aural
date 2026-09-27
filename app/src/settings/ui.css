@@ -1,4 +1,6 @@
 /* Shared settings building blocks: sections, rows, buttons, switches, segmented. */
+/* One scroll area: the window never scrolls, only the content pane (App.svelte main). */
+html, body { overflow: hidden; overscroll-behavior: none; }
 .page { padding: 28px 36px 40px; max-width: 720px; }
 .page h1 { margin: 0 0 4px; font: 600 22px/1.2 var(--font-display); letter-spacing: -0.01em; }
 .page .lede { margin: 0 0 24px; color: var(--ink-2); }

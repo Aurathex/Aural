@@ -6,6 +6,8 @@
 
   let { app }: { app: AppState } = $props();
   let deleting = $state(false);
+  // Matches the installer's copyright line (tauri.conf.json).
+  const year = 2026;
 </script>
 
 <div class="page">
@@ -13,6 +15,7 @@
     <span class="mark"><Logo size={40} /></span>
     <div>
       <h1>Aural</h1>
+      <div class="maker">by Aurathex</div>
       <div class="muted num">Version {app.version}</div>
     </div>
   </div>
@@ -38,6 +41,18 @@
     </div>
   </section>
 
+  <section class="section">
+    <h2>Aurathex</h2>
+    <div class="rows">
+      <div class="row">
+        <div class="text">
+          <div class="title">Made by Aurathex</div>
+          <div class="desc">Aural is designed and built by Aurathex. © {year} Aurathex. All rights reserved.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="section danger-zone">
     <h2>Danger zone</h2>
     <div class="rows">
@@ -57,6 +72,7 @@
 <style>
   .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
   .brand h1 { margin: 0; }
+  .maker { font: 600 13px/1.3 var(--font-display); letter-spacing: 0.02em; color: var(--ink); }
   .mark {
     display: grid;
     place-items: center;

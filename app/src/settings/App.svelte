@@ -127,7 +127,7 @@
 {/if}
 
 <style>
-  .shell { display: flex; height: 100vh; }
+  .shell { display: flex; height: 100vh; overflow: hidden; }
   aside {
     display: flex;
     flex-direction: column;
@@ -175,7 +175,7 @@
   .dot { width: 8px; height: 8px; flex: none; border-radius: 50%; border: 1.5px solid var(--ink-3); }
   .dot.ready { background: var(--ink); border-color: var(--ink); }
   .demo { margin: 8px 8px 0; font-size: 11px; color: var(--ink-3); }
-  main { flex: 1; overflow-y: auto; }
+  main { position: relative; flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
   .notice {
     display: flex;
     align-items: center;
