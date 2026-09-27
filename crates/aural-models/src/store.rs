@@ -228,9 +228,14 @@ mod tests {
     }
 
     const HW: HardwareProfile = HardwareProfile {
+        cpu_name: String::new(),
         total_ram_mb: 16_000,
+        free_ram_mb: 8_000,
         logical_cores: 16,
+        physical_cores: 8,
         avx2: true,
+        avx512: false,
+        gpus: Vec::new(),
     };
 
     #[test]

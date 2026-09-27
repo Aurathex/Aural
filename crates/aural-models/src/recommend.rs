@@ -2,38 +2,86 @@
 //! model; incompatibility only comes from not enough RAM.
 
 use crate::catalog::{Catalog, ModelEntry};
+use aural_platform::gpu::GpuInfo;
 use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct HardwareProfile {
+    pub cpu_name: String,
     pub total_ram_mb: u64,
+    /// Free when detected; changes all the time, so it is not part of the fingerprint.
+    pub free_ram_mb: u64,
     pub logical_cores: usize,
+    pub physical_cores: usize,
     pub avx2: bool,
+    pub avx512: bool,
+    pub gpus: Vec<GpuInfo>,
 }
 
 impl HardwareProfile {
-    /// Probe this machine (RAM via the OS, cores via std, AVX2 via cpuid).
+    /// Probe this machine (RAM via the OS, cores via std/Windows, CPU features via
+    /// cpuid, graphics cards via DXGI).
     pub fn detect() -> Self {
+        let (total_ram_mb, free_ram_mb) = ram_mb();
         Self {
-            total_ram_mb: total_ram_mb(),
+            cpu_name: aural_platform::cpu::name(),
+            total_ram_mb,
+            free_ram_mb,
             logical_cores: std::thread::available_parallelism().map_or(1, |n| n.get()),
-            avx2: avx2(),
+            physical_cores: aural_platform::cpu::physical_cores(),
+            avx2: cpu_feature("avx2"),
+            avx512: cpu_feature("avx512f"),
+            gpus: gpus(),
         }
+    }
+
+    /// Identifies "the same PC" for saved test results: processor, cores, RAM size to
+    /// the GB, and each graphics card with its driver version and memory. A new driver
+    /// or card changes it, so results are measured again.
+    pub fn fingerprint(&self) -> String {
+        let mut gpus: Vec<String> = self
+            .gpus
+            .iter()
+            .map(|g| format!("{}/{}/{}MB", g.name, g.driver, g.vram_mb))
+            .collect();
+        gpus.sort();
+        format!(
+            "cpu={};cores={}/{};ram={}GB;gpus=[{}]",
+            self.cpu_name,
+            self.physical_cores,
+            self.logical_cores,
+            (self.total_ram_mb + 512) / 1024,
+            gpus.join(";")
+        )
     }
 }
 
+#[cfg(windows)]
+fn gpus() -> Vec<GpuInfo> {
+    aural_platform::gpu::adapters()
+}
+
+#[cfg(not(windows))]
+fn gpus() -> Vec<GpuInfo> {
+    Vec::new()
+}
+
 #[cfg(target_arch = "x86_64")]
-fn avx2() -> bool {
-    std::arch::is_x86_feature_detected!("avx2")
+fn cpu_feature(name: &str) -> bool {
+    match name {
+        "avx2" => std::arch::is_x86_feature_detected!("avx2"),
+        "avx512f" => std::arch::is_x86_feature_detected!("avx512f"),
+        _ => false,
+    }
 }
 
 #[cfg(not(target_arch = "x86_64"))]
-fn avx2() -> bool {
+fn cpu_feature(_: &str) -> bool {
     false
 }
-
 #[cfg(windows)]
-fn total_ram_mb() -> u64 {
+/// (total, free) physical memory in MB.
+fn ram_mb() -> (u64, u64) {
     #[repr(C)]
     struct MemoryStatusEx {
         length: u32,
@@ -63,15 +111,15 @@ fn total_ram_mb() -> u64 {
     };
     // SAFETY: `s` is a correctly sized MEMORYSTATUSEX with dwLength set.
     if unsafe { GlobalMemoryStatusEx(&mut s) } != 0 {
-        s.total_phys / (1024 * 1024)
+        (s.total_phys / (1024 * 1024), s.avail_phys / (1024 * 1024))
     } else {
-        0
+        (0, 0)
     }
 }
 
 #[cfg(not(windows))]
-fn total_ram_mb() -> u64 {
-    0
+fn ram_mb() -> (u64, u64) {
+    (0, 0)
 }
 
 pub fn compatible(entry: &ModelEntry, hw: &HardwareProfile) -> bool {
@@ -104,13 +152,69 @@ pub fn recommend<'a>(catalog: &'a Catalog, hw: &HardwareProfile) -> Option<&'a s
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
+    use aural_platform::gpu::{GpuInfo, Vendor};
 
     fn hw(ram: u64, cores: usize, avx2: bool) -> HardwareProfile {
         HardwareProfile {
             total_ram_mb: ram,
             logical_cores: cores,
             avx2,
+            ..HardwareProfile::default()
         }
+    }
+
+    fn laptop() -> HardwareProfile {
+        HardwareProfile {
+            cpu_name: "Intel(R) Core(TM) Ultra 9 185H".into(),
+            total_ram_mb: 15_770,
+            free_ram_mb: 6_000,
+            logical_cores: 22,
+            physical_cores: 16,
+            avx2: true,
+            avx512: false,
+            gpus: vec![GpuInfo {
+                name: "NVIDIA GeForce RTX 4070 Laptop GPU".into(),
+                vendor: Vendor::Nvidia,
+                vram_mb: 7_948,
+                integrated: false,
+                driver: "32.0.16.1714".into(),
+                luid: 1,
+            }],
+        }
+    }
+
+    #[test]
+    fn fingerprint_changes_with_driver_but_not_free_ram() {
+        let a = laptop();
+        let mut b = laptop();
+        b.free_ram_mb = 1_200;
+        b.gpus[0].luid = 7;
+        assert_eq!(a.fingerprint(), b.fingerprint());
+        b.gpus[0].driver = "32.0.16.1800".into();
+        assert_ne!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_changes_with_ram_size_and_gpus() {
+        let a = laptop();
+        let mut more_ram = laptop();
+        more_ram.total_ram_mb = 31_900;
+        assert_ne!(a.fingerprint(), more_ram.fingerprint());
+        let mut no_gpu = laptop();
+        no_gpu.gpus.clear();
+        assert_ne!(a.fingerprint(), no_gpu.fingerprint());
+        // RAM reported a few MB differently after a driver update is the same PC.
+        let mut jitter = laptop();
+        jitter.total_ram_mb = 15_790;
+        assert_eq!(a.fingerprint(), jitter.fingerprint());
+    }
+
+    #[test]
+    fn detect_finds_this_pc() {
+        let hw = HardwareProfile::detect();
+        assert!(hw.total_ram_mb > 0 && hw.free_ram_mb <= hw.total_ram_mb);
+        assert!(hw.physical_cores >= 1 && hw.physical_cores <= hw.logical_cores);
+        assert!(!hw.fingerprint().is_empty());
     }
 
     #[test]

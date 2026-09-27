@@ -407,6 +407,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aural-engines",
+ "aural-platform",
  "serde",
  "serde_json",
  "sha2 0.11.0",

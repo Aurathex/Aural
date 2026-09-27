@@ -4,10 +4,10 @@
 pub mod autostart;
 pub mod chord;
 pub mod consent;
+pub mod cpu;
+pub mod gpu;
 pub mod insert;
 pub mod install;
 
-#[cfg(windows)]
-pub mod gpu;
 #[cfg(windows)]
 pub mod hook;

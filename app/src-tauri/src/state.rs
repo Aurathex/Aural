@@ -95,7 +95,7 @@ impl App {
             hotkey_display,
             models,
             devices: aural_audio::capture::input_devices().unwrap_or_default(),
-            hardware: self.hw,
+            hardware: self.hw.clone(),
             engine: self.engine.status(),
             mic_consent: aural_platform::consent::mic_consent(),
             autostart: aural_platform::autostart::is_enabled(
