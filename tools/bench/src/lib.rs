@@ -3,4 +3,4 @@ pub mod cli;
 pub mod engines;
 pub mod mem;
 pub mod runner;
-pub mod wer;
+pub use aural_eval::wer;

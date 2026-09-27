@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/aural-core",
   "crates/aural-audio",
+  "crates/aural-eval",
   "crates/aural-engines",
   "crates/aural-models",
   "crates/aural-platform",
@@ -19,6 +20,7 @@ members = [
 default-members = [
   "crates/aural-core",
   "crates/aural-audio",
+  "crates/aural-eval",
   "crates/aural-engines",
   "crates/aural-models",
   "crates/aural-platform",

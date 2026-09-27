@@ -3,6 +3,7 @@
 use crate::audio::TARGET_RATE;
 use crate::wer::{word_errors, WerStats};
 use anyhow::{bail, Context, Result};
+use aural_eval::metrics::nearest_rank;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -67,26 +68,15 @@ pub fn run(
         .collect()
 }
 
-fn nearest_rank(sorted: &[f64], pct: f64) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-    let rank = ((pct / 100.0) * sorted.len() as f64).ceil() as usize;
-    sorted[rank.clamp(1, sorted.len()) - 1]
-}
-
 pub fn summarize(results: &[ClipResult]) -> Summary {
     if results.is_empty() {
         return Summary::default();
     }
     let mut lat: Vec<f64> = results.iter().map(|r| r.latency_ms).collect();
     lat.sort_by(f64::total_cmp);
-    let pooled = results.iter().fold(WerStats::default(), |acc, r| WerStats {
-        substitutions: acc.substitutions + r.wer.substitutions,
-        deletions: acc.deletions + r.wer.deletions,
-        insertions: acc.insertions + r.wer.insertions,
-        reference_words: acc.reference_words + r.wer.reference_words,
-    });
+    let pooled = results
+        .iter()
+        .fold(WerStats::default(), |acc, r| acc + r.wer);
     let mean_rtf = results
         .iter()
         .map(|r| (r.latency_ms / 1000.0) / r.audio_secs.max(f64::EPSILON))

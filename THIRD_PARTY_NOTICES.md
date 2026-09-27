@@ -16,6 +16,11 @@ own license (LICENSE.md) does not change their terms.
   are installed next to Aural as `licenses\onnxruntime-ThirdPartyNotices.txt`.
 - **whisper.cpp / ggml** — © The ggml authors, MIT License (text below); compiled into
   `aural-stt-ggml.exe`.
+- **LibriSpeech test-clean** (20 short recordings in `eval\`, used by the Hardware Test to
+  check accuracy and speed) — by Vassil Panayotov, Guoguo Chen, Daniel Povey and Sanjeev
+  Khudanpur, from LibriVox audiobooks — https://www.openslr.org/12 — licensed CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/). Re-encoded to 16 kHz mono FLAC; the
+  audio is otherwise unmodified.
 - **Mozilla CA certificate list** (via `webpki-roots`) — CDLA-Permissive-2.0; used to
   verify HTTPS model downloads.
 

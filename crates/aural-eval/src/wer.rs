@@ -44,6 +44,29 @@ impl WerStats {
     }
 }
 
+/// Pools two runs' counts.
+impl std::ops::Add for WerStats {
+    type Output = WerStats;
+
+    fn add(self, o: WerStats) -> WerStats {
+        WerStats {
+            substitutions: self.substitutions + o.substitutions,
+            deletions: self.deletions + o.deletions,
+            insertions: self.insertions + o.insertions,
+            reference_words: self.reference_words + o.reference_words,
+        }
+    }
+}
+
+/// Half-width of the 95% confidence interval of a WER measured over `words`\n/// reference words: 1.96 * sqrt(p(1 - p) / N).
+pub fn margin_95(wer: f64, words: usize) -> f64 {
+    if words == 0 {
+        return 1.0;
+    }
+    let p = wer.clamp(0.0, 1.0);
+    1.96 * (p * (1.0 - p) / words as f64).sqrt()
+}
+
 /// Levenshtein alignment over normalized words; each cell carries
 /// (cost, substitutions, deletions, insertions) so the error kinds fall out of the
 /// cheapest path.
@@ -86,6 +109,25 @@ pub fn word_errors(reference: &str, hypothesis: &str) -> WerStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn margin_shrinks_with_more_words() {
+        assert!((margin_95(0.025, 2111) - 0.0067).abs() < 1e-4);
+        assert!((margin_95(0.025, 400) - 0.0153).abs() < 1e-4);
+    }
+
+    #[test]
+    fn margin_of_nothing_is_total_uncertainty() {
+        assert_eq!(margin_95(0.1, 0), 1.0);
+    }
+
+    #[test]
+    fn stats_add_pools_counts() {
+        let a = word_errors("a b c d", "a x c d e");
+        let b = word_errors("a b c", "a c");
+        let p = a + b;
+        assert_eq!((p.errors(), p.reference_words), (3, 7));
+    }
 
     #[test]
     fn identical_is_zero() {
