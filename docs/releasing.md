@@ -22,3 +22,11 @@ Not set up yet. Unsigned installers trigger SmartScreen until the file builds up
 reputation, and some antivirus products are suspicious of unsigned apps that use a
 keyboard hook and simulated input. Options are in `docs/LICENSING.md` (the SignPath
 Foundation's free program requires an OSI license, which Aural's license is not).
+
+**Release blocker found on 2026-09-26:** with Avast Antivirus active, every freshly
+built, unsigned `uninstall.exe` is auto-sandboxed (Avast `autosandbox.log`: "Autosandbox
+candidate … Result: Sandboxing", reason `0x00020000`) and hangs without a window. That
+breaks uninstalling, upgrading through the installer UI (it runs the old uninstaller)
+and Delete Aural for Avast users. The installer and `aural.exe` were not affected in
+the same test. Sign the installer, `aural.exe`, the workers and the uninstaller before a
+public release, and re-test on a machine with Avast.

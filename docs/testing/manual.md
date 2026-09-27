@@ -6,6 +6,11 @@ installer and uninstaller) and the worker processes. What's left needs a person 
 keyboard. Run this on a real Windows 10 or 11 PC before each release; record results in
 the release notes.
 
+Run installer checks from an ordinary terminal. A terminal inside a packaged (MSIX)
+app, such as a desktop app's built-in shell, has its AppData and HKCU writes redirected
+into that app's container: the installer then "succeeds" in a private copy that Windows
+itself never sees.
+
 Before starting, with the screen unlocked, run the automated desktop tests and the
 installer upgrade check:
 
