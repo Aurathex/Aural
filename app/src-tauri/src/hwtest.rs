@@ -24,13 +24,14 @@ pub fn evaluate(
     hw: &HardwareProfile,
     words: usize,
 ) -> Evaluation {
+    let calibrations = calibrations(catalog, store);
     let mut rows = Vec::new();
     for model in catalog.models.iter().filter(|m| !m.probe) {
         for v in &model.variants {
             let result = store
                 .get(&model.variant_id(v.backend))
                 .cloned()
-                .or_else(|| estimate(model, v, store.calibrations(), hw));
+                .or_else(|| estimate(model, v, &calibrations, hw));
             if let Some(r) = result {
                 rows.push((model.clone(), v.clone(), r));
             }
@@ -41,6 +42,34 @@ pub fn evaluate(
         results: rows.into_iter().map(|(_, _, r)| r).collect(),
         labels,
     }
+}
+
+/// The probe calibrations, plus one from any measured model with reference numbers for
+/// a runtime and backend no probe covers (no probe runs ONNX models on the graphics
+/// card, since Moonshine is processor-only).
+fn calibrations(catalog: &Catalog, store: &ResultsStore) -> Vec<aural_models::Calibration> {
+    let mut cal = store.calibrations().to_vec();
+    for r in store.results().filter(|r| r.measured && r.error.is_none()) {
+        let (Some(m), Some((model, v))) = (&r.metrics, catalog.variant(&r.variant)) else {
+            continue;
+        };
+        let (Some(reference), aural_models::Stability::Stable) = (&v.reference, &r.stability)
+        else {
+            continue;
+        };
+        if !cal
+            .iter()
+            .any(|c| c.runtime == model.runtime && c.backend == v.backend)
+        {
+            cal.push(aural_models::Calibration {
+                runtime: model.runtime,
+                backend: v.backend,
+                probe_p50_ms: m.p50_ms,
+                probe_ref_p50_ms: reference.p50_ms,
+            });
+        }
+    }
+    cal
 }
 
 /// "Parakeet on the graphics card" — how a variant is named to the user.
@@ -736,11 +765,70 @@ mod tests {
             error: None,
         });
         let e = evaluate(&Catalog::builtin(), &store, &laptop(false), 396);
-        assert_eq!(e.results.len(), 1);
+        assert!(e.results.iter().any(|r| r.variant == PK_CPU && r.measured));
+        // It also calibrates the processor for the other ONNX models, which get estimates.
+        assert!(e
+            .results
+            .iter()
+            .any(|r| r.variant == "moonshine-base-int8@cpu" && !r.measured));
         assert_eq!(
             e.labels[PK_CPU],
             [Label::Recommended, Label::MostAccurate, Label::Fastest]
         );
+    }
+
+    #[test]
+    fn a_measured_model_calibrates_its_backend_for_estimates() {
+        // No probe runs on the graphics card for ONNX models (Moonshine is CPU-only), so a
+        // measured Parakeet there is what lets Aural estimate the other ONNX models there.
+        let mut c = catalog_with_directml();
+        let reference = |p50_ms: u64| aural_models::catalog::Reference {
+            wer: 0.02,
+            p50_ms,
+            rtf: 0.05,
+            load_ms: 2_000,
+            ram_mb: 800,
+            vram_mb: 1_000,
+        };
+        for m in c.models.iter_mut().filter(|m| m.family == "parakeet") {
+            for v in m.variants.iter_mut() {
+                v.reference = Some(reference(if m.id.contains("v3") { 400 } else { 350 }));
+            }
+            if m.variant(Backend::DirectMl).is_none() {
+                let mut v = m.variants[0].clone();
+                v.backend = Backend::DirectMl;
+                m.variants.push(v);
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ResultsStore::load(&dir.path().join("hardware.json")).unwrap();
+        store.put(VariantResult {
+            variant: PK_DML.into(),
+            metrics: Some(aural_eval::metrics::RunMetrics {
+                wer: 0.005,
+                words: 396,
+                p50_ms: 700,
+                p95_ms: 800,
+                rtf: 0.09,
+            }),
+            load_ms: 3_000,
+            ram_mb: 770,
+            vram_mb: Some(1_000),
+            spread: 1.2,
+            passes: 3,
+            stability: aural_models::Stability::Stable,
+            measured: true,
+            error: None,
+        });
+        let e = evaluate(&c, &store, &laptop(true), 396);
+        let v3 = e
+            .results
+            .iter()
+            .find(|r| r.variant == "parakeet-tdt-0.6b-v3-int8@directml")
+            .expect("parakeet v3 on the graphics card is estimated");
+        assert!(!v3.measured);
+        // 400 ms reference × (700 measured / 350 reference) for Parakeet v2 there.
+        assert_eq!(v3.metrics.unwrap().p50_ms, 800);
     }
 
     #[test]

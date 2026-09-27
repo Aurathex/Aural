@@ -1,5 +1,5 @@
-//! Process memory probe for benchmark reports. VRAM is read manually (nvidia-smi /
-//! Task Manager) during runs; this only covers system RAM.
+//! Process memory probe for benchmark reports (system RAM; graphics memory comes from
+//! aural_platform::gpu).
 
 use anyhow::{bail, Result};
 use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};

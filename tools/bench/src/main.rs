@@ -35,6 +35,8 @@ fn main() -> Result<()> {
     let peak_mb = peak_working_set_mb()?;
     let engine_ram_mb = (peak_mb - baseline_mb).max(0.0);
     let threads_used = engine.threads();
+    // Graphics-card memory this process holds with the model still loaded.
+    let gpu_memory_mb = aural_platform::gpu::process_gpu_memory_mb();
 
     println!("| engine | backend | threads | clips | WER | p50 ms | p95 ms | mean RTF | load ms | engine RAM MB |");
     println!("|---|---|---|---|---|---|---|---|---|---|");
@@ -61,6 +63,7 @@ fn main() -> Result<()> {
         "peak_working_set_mb": peak_mb,
         "corpus_baseline_mb": baseline_mb,
         "engine_ram_mb": engine_ram_mb,
+        "gpu_memory_mb": gpu_memory_mb,
         "summary": summary,
         "clips": results,
     });

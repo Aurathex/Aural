@@ -360,6 +360,7 @@ dependencies = [
  "aural-audio",
  "aural-engines",
  "aural-eval",
+ "aural-platform",
  "clap",
  "serde",
  "serde_json",

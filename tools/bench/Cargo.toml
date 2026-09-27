@@ -17,6 +17,7 @@ cuda = ["aural-engines/cuda"]
 anyhow = "1.0.104"
 aural-audio = { path = "../../crates/aural-audio" }
 aural-eval = { path = "../../crates/aural-eval" }
+aural-platform = { path = "../../crates/aural-platform" }
 aural-engines = { path = "../../crates/aural-engines", features = ["clap"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"

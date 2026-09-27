@@ -52,11 +52,11 @@
           "min_ram_mb": 2048,
           "min_vram_mb": 0,
           "reference": {
-            "ram_mb": 861,
-            "load_ms": 2060,
-            "rtf": 0.049,
-            "p50_ms": 257,
             "wer": 0.0251,
+            "p50_ms": 279,
+            "rtf": 0.051,
+            "load_ms": 1805,
+            "ram_mb": 863,
             "vram_mb": 0
           }
         },
@@ -64,7 +64,14 @@
           "backend": "directml",
           "min_ram_mb": 2048,
           "min_vram_mb": 1536,
-          "reference": null
+          "reference": {
+            "wer": 0.0246,
+            "p50_ms": 596,
+            "rtf": 0.115,
+            "load_ms": 2967,
+            "ram_mb": 756,
+            "vram_mb": 1292
+          }
         }
       ]
     },
@@ -142,13 +149,27 @@
           "backend": "cpu",
           "min_ram_mb": 2048,
           "min_vram_mb": 0,
-          "reference": null
+          "reference": {
+            "wer": 0.0251,
+            "p50_ms": 272,
+            "rtf": 0.05,
+            "load_ms": 1820,
+            "ram_mb": 870,
+            "vram_mb": 0
+          }
         },
         {
           "backend": "directml",
           "min_ram_mb": 2048,
           "min_vram_mb": 1536,
-          "reference": null
+          "reference": {
+            "wer": 0.0237,
+            "p50_ms": 617,
+            "rtf": 0.118,
+            "load_ms": 3017,
+            "ram_mb": 756,
+            "vram_mb": 1333
+          }
         }
       ]
     },
@@ -202,7 +223,14 @@
           "backend": "cpu",
           "min_ram_mb": 512,
           "min_vram_mb": 0,
-          "reference": null
+          "reference": {
+            "wer": 0.0422,
+            "p50_ms": 328,
+            "rtf": 0.063,
+            "load_ms": 931,
+            "ram_mb": 284,
+            "vram_mb": 0
+          }
         }
       ]
     },
@@ -238,13 +266,27 @@
           "backend": "cpu",
           "min_ram_mb": 1536,
           "min_vram_mb": 0,
-          "reference": null
+          "reference": {
+            "wer": 0.0237,
+            "p50_ms": 14828,
+            "rtf": 2.898,
+            "load_ms": 1348,
+            "ram_mb": 964,
+            "vram_mb": 0
+          }
         },
         {
           "backend": "vulkan",
           "min_ram_mb": 1024,
           "min_vram_mb": 1536,
-          "reference": null
+          "reference": {
+            "wer": 0.0256,
+            "p50_ms": 295,
+            "rtf": 0.056,
+            "load_ms": 2495,
+            "ram_mb": 614,
+            "vram_mb": 1319
+          }
         }
       ]
     },
@@ -280,13 +322,27 @@
           "backend": "cpu",
           "min_ram_mb": 3072,
           "min_vram_mb": 0,
-          "reference": null
+          "reference": {
+            "wer": 0.0317,
+            "p50_ms": 12902,
+            "rtf": 2.517,
+            "load_ms": 4707,
+            "ram_mb": 1845,
+            "vram_mb": 0
+          }
         },
         {
           "backend": "vulkan",
           "min_ram_mb": 1024,
           "min_vram_mb": 2560,
-          "reference": null
+          "reference": {
+            "wer": 0.0317,
+            "p50_ms": 283,
+            "rtf": 0.054,
+            "load_ms": 5505,
+            "ram_mb": 1099,
+            "vram_mb": 2197
+          }
         }
       ]
     },
@@ -323,11 +379,11 @@
           "min_ram_mb": 1024,
           "min_vram_mb": 0,
           "reference": {
-            "ram_mb": 562,
-            "load_ms": 624,
-            "rtf": 0.559,
-            "p50_ms": 2740,
             "wer": 0.0313,
+            "p50_ms": 2181,
+            "rtf": 0.412,
+            "load_ms": 711,
+            "ram_mb": 563,
             "vram_mb": 0
           }
         },
@@ -335,7 +391,14 @@
           "backend": "vulkan",
           "min_ram_mb": 512,
           "min_vram_mb": 768,
-          "reference": null
+          "reference": {
+            "wer": 0.0327,
+            "p50_ms": 137,
+            "rtf": 0.025,
+            "load_ms": 692,
+            "ram_mb": 355,
+            "vram_mb": 908
+          }
         }
       ]
     },
@@ -372,11 +435,11 @@
           "min_ram_mb": 512,
           "min_vram_mb": 0,
           "reference": {
-            "ram_mb": 275,
-            "load_ms": 256,
-            "rtf": 0.155,
-            "p50_ms": 819,
             "wer": 0.0488,
+            "p50_ms": 631,
+            "rtf": 0.122,
+            "load_ms": 223,
+            "ram_mb": 274,
             "vram_mb": 0
           }
         },
@@ -384,7 +447,14 @@
           "backend": "vulkan",
           "min_ram_mb": 512,
           "min_vram_mb": 512,
-          "reference": null
+          "reference": {
+            "wer": 0.0488,
+            "p50_ms": 72,
+            "rtf": 0.013,
+            "load_ms": 460,
+            "ram_mb": 182,
+            "vram_mb": 611
+          }
         }
       ]
     },
@@ -420,13 +490,27 @@
           "backend": "cpu",
           "min_ram_mb": 256,
           "min_vram_mb": 0,
-          "reference": null
+          "reference": {
+            "wer": 0.064,
+            "p50_ms": 333,
+            "rtf": 0.063,
+            "load_ms": 179,
+            "ram_mb": 193,
+            "vram_mb": 0
+          }
         },
         {
           "backend": "vulkan",
           "min_ram_mb": 256,
           "min_vram_mb": 256,
-          "reference": null
+          "reference": {
+            "wer": 0.063,
+            "p50_ms": 53,
+            "rtf": 0.01,
+            "load_ms": 381,
+            "ram_mb": 180,
+            "vram_mb": 270
+          }
         }
       ]
     },
@@ -480,7 +564,14 @@
           "backend": "cpu",
           "min_ram_mb": 256,
           "min_vram_mb": 0,
-          "reference": null
+          "reference": {
+            "wer": 0.0512,
+            "p50_ms": 236,
+            "rtf": 0.045,
+            "load_ms": 775,
+            "ram_mb": 191,
+            "vram_mb": 0
+          }
         }
       ]
     }
