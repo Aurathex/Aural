@@ -1,4 +1,4 @@
-# Prompts for the personal dictation corpus (M0 gate). One per line; read each one
+# Prompts for the optional personal dictation corpus. One per line; read each one
 # naturally, as you would dictate it. Lines starting with # are ignored.
 Hey Maria, can you send me the quarterly report by Friday afternoon?
 I'll be about ten minutes late to the meeting, so please start without me.

@@ -1,4 +1,4 @@
-# Record the personal dictation corpus for the M0 gate: one WAV per prompt, plus a
+# Record the (optional) personal dictation corpus, a check on real dictation: one WAV per prompt, plus a
 # corpus.tsv the bench reads. Audio stays outside the repo.
 #
 #   ./tools/bench/scripts/record-corpus.ps1                   # record every prompt

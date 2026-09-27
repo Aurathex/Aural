@@ -1,9 +1,11 @@
 # STT baseline benchmark (M0)
 
-**Status: M0 gate OPEN.** The public-corpus benchmark below is complete and sets the
-**provisional** model recommendations. The gate closes only after the same benchmark
-runs on the owner's 30-clip personal dictation corpus (see "What is still open"). That
-step has not been done.
+**Status: M0 gate CLOSED (2026-09-27, owner decision).** The gate is closed on the
+LibriSpeech-100 benchmark below and the v0.2 benchmarks of every catalog variant on the
+same corpus and on the built-in clips (`2026-09-27-v0.2-a.md`). The owner's 30-clip
+personal dictation corpus is optional, not a release blocker: when it is recorded it
+will be run as a check on real dictation, not as a gate. In v0.2 the per-PC hardware
+test, not this document, decides which model is recommended on each PC.
 
 Run: 2026-09-26, 20:10–20:47, sequential, one model at a time.
 
@@ -58,7 +60,7 @@ WER, p50 305 ms), because the matrix's sampler stopped before its last readings 
 written. An earlier run the same day (13:31–13:44, before the GPU-detection fix) gave
 the same WER for every model and latencies within about 10%.
 
-## Provisional recommendations
+## Recommendations (v0.1; superseded per PC by the v0.2 hardware test)
 
 These follow the decision rules in the M0 plan.
 
@@ -74,14 +76,15 @@ Not recommended:
   accurate than Parakeet.
 - **large-v3-turbo on CPU** is three times slower than real time.
 
-## What is still open (why the gate is not passed)
+## Optional follow-ups (not blocking)
 
-1. **Personal dictation corpus.** 30 clips in the owner's voice
+1. **Personal dictation corpus (optional).** 30 clips in the owner's voice
    (`tools/bench/corpus/personal-prompts.txt`), recorded with
    `tools/bench/scripts/record-corpus.ps1`, then
    `run-matrix.ps1 -Backends cpu,vulkan,cuda`. LibriSpeech is read audiobook speech;
    dictation has different vocabulary, pacing and microphones.
 2. **AMD GPUs:** no hardware was available; still unverified.
 
-When the personal corpus has been run, update this file's status line and the
-recommendations, and M0 is closed.
+If the personal corpus is run, add its results here. A large gap from LibriSpeech (for
+example, much higher WER on names or technical words) would be a reason to revisit the
+catalog, not to reopen M0.

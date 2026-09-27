@@ -74,10 +74,11 @@ Notes:
 
 ## M0 benchmark procedure
 
-The M0 gate compares engines on two corpora, with the same scripts on every machine.
+Engines are compared on two corpora, with the same scripts on every machine. The M0 gate
+was closed on the public corpus (see `docs/benchmarks/`); the personal corpus is optional.
 Audio and results stay outside the repo.
 
-1. **Public corpus (provisional defaults).** Download LibriSpeech test-clean from
+1. **Public corpus.** Download LibriSpeech test-clean from
    <https://www.openslr.org/12> (MD5 `32fa31d27d2e1cad72775fee3f4849a9`), extract it, then:
    ```powershell
    ./tools/bench/scripts/prepare-librispeech.ps1 -Source <folder with LibriSpeech\test-clean> `
