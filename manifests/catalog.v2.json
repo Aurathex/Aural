@@ -240,6 +240,166 @@
       ]
     },
     {
+      "id": "moonshine-streaming-tiny",
+      "name": "Moonshine Streaming tiny",
+      "family": "moonshine",
+      "engine": "moonshine",
+      "runtime": "onnx",
+      "precision": "fp32",
+      "streaming": true,
+      "probe": false,
+      "description": "Shows your words as you speak. Very small and quick; makes more mistakes than the bigger models.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "MIT",
+        "url": "https://opensource.org/license/mit",
+        "attribution": "Moonshine Streaming tiny by Moonshine AI / Useful Sensors (https://huggingface.co/moonshine-ai/moonshine-streaming-tiny), MIT License. ONNX Runtime export (https://huggingface.co/moonshine-ai/moonshine-streaming)."
+      },
+      "source": "https://huggingface.co/moonshine-ai/moonshine-streaming",
+      "files": [
+        {
+          "name": "frontend.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/tiny/frontend.ort",
+          "sha256": "2257542ce88f8ce00dfce8431e654045ba8e8e64d40bb941b0bdb92a0aaf31ec",
+          "size": 8322000
+        },
+        {
+          "name": "encoder.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/tiny/encoder.ort",
+          "sha256": "9284a8146b0819ca609e6c66a2d8a92a52029a489825b3f678197a3c1adbd18f",
+          "size": 7585512
+        },
+        {
+          "name": "adapter.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/tiny/adapter.ort",
+          "sha256": "9ef4731ef99ebf065760f3131b0e61cd8eeecc247ef4c2361bd663c3bfbda267",
+          "size": 5250424
+        },
+        {
+          "name": "cross_kv.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/tiny/cross_kv.ort",
+          "sha256": "9f43346bf9cab98642e23286f7f1ad105676c9fdd960a1bb969a93ace7227d4e",
+          "size": 1267248
+        },
+        {
+          "name": "decoder_kv.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/tiny/decoder_kv.ort",
+          "sha256": "b263a0be74f74d5279b6087a9663d9220d0304de35b13ad981ac89f7aaa653e9",
+          "size": 95346024
+        },
+        {
+          "name": "streaming_config.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/tiny/streaming_config.json",
+          "sha256": "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950",
+          "size": 509
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/tiny/tokenizer.json",
+          "sha256": "b68b995a58b3373db6c4f46864a9db50cd1333d086150ffa2c1096581ede9c10",
+          "size": 1985533
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 256,
+          "min_vram_mb": 0,
+          "reference": {
+            "wer": 0.0507,
+            "p50_ms": 118,
+            "rtf": 0.025,
+            "load_ms": 370,
+            "ram_mb": 284,
+            "vram_mb": 0,
+            "clips_wer": 0.0177
+          }
+        }
+      ]
+    },
+    {
+      "id": "moonshine-streaming-small",
+      "name": "Moonshine Streaming small",
+      "family": "moonshine",
+      "engine": "moonshine",
+      "runtime": "onnx",
+      "precision": "fp32",
+      "streaming": true,
+      "probe": false,
+      "description": "Shows your words as you speak, with good accuracy. Runs on the processor.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "MIT",
+        "url": "https://opensource.org/license/mit",
+        "attribution": "Moonshine Streaming small by Moonshine AI / Useful Sensors (https://huggingface.co/moonshine-ai/moonshine-streaming-small), MIT License. ONNX Runtime export (https://huggingface.co/moonshine-ai/moonshine-streaming)."
+      },
+      "source": "https://huggingface.co/moonshine-ai/moonshine-streaming",
+      "files": [
+        {
+          "name": "frontend.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/small/frontend.ort",
+          "sha256": "ef734753ad5ddb003175a2d294e19085fd02f08fe7b70d20c25f952ebe0df46f",
+          "size": 30981600
+        },
+        {
+          "name": "encoder.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/small/encoder.ort",
+          "sha256": "e69ae2dbae66e5cb51495735fd44354827424bdbcd5982fcf15913aa12c5cfa8",
+          "size": 43879872
+        },
+        {
+          "name": "adapter.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/small/adapter.ort",
+          "sha256": "390a610eb3769322dcdd1cb8cfb97ab616d9d8ead674244187a1428cd0b839f8",
+          "size": 11436008
+        },
+        {
+          "name": "cross_kv.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/small/cross_kv.ort",
+          "sha256": "4bc30c518b1d7db5d2893cb28291117167a4777b62c4787bdfb5597f0b742993",
+          "size": 5303416
+        },
+        {
+          "name": "decoder_kv.ort",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/small/decoder_kv.ort",
+          "sha256": "e07b75059fda3228c7860d5fc8eadd7157a6487f2fd64dc1788dfcd1b596e97a",
+          "size": 182148784
+        },
+        {
+          "name": "streaming_config.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/small/streaming_config.json",
+          "sha256": "26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a",
+          "size": 512
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/moonshine-ai/moonshine-streaming/resolve/da30bae714913eb0057e733bccb4700104afb1b0/onnx/small/tokenizer.json",
+          "sha256": "b68b995a58b3373db6c4f46864a9db50cd1333d086150ffa2c1096581ede9c10",
+          "size": 1985533
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 768,
+          "min_vram_mb": 0,
+          "reference": {
+            "wer": 0.0322,
+            "p50_ms": 307,
+            "rtf": 0.069,
+            "load_ms": 777,
+            "ram_mb": 537,
+            "vram_mb": 0,
+            "clips_wer": 0.0126
+          }
+        }
+      ]
+    },
+    {
       "id": "whisper-large-v3-turbo-q5",
       "name": "Whisper large-v3 turbo",
       "family": "whisper",
