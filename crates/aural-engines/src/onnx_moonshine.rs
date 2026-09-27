@@ -1,0 +1,197 @@
+//! Moonshine (Useful Sensors) via `transcribe-rs`, English models. Expected folder:
+//! `encoder_model[.int8].onnx`, `decoder_model_merged[.int8].onnx`, `tokenizer.json`,
+//! `config.json` (tiny/base), or `streaming_config.json` plus the streaming model's
+//! files for the streaming variant.
+//!
+//! The streaming model is run on whole recordings here, like the others; showing words
+//! while the user speaks is sub-project B.
+
+use crate::onnx_accel;
+use crate::{Backend, Transcriber};
+use anyhow::{bail, Context, Result};
+use std::path::Path;
+use transcribe_rs::onnx::moonshine::{
+    MoonshineModel, MoonshineParams, MoonshineStreamingParams, MoonshineVariant, StreamingModel,
+};
+use transcribe_rs::onnx::Quantization;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Tiny,
+    Base,
+    Streaming,
+}
+
+/// Which Moonshine model a folder holds, from its config files. Unknown layouts are an
+/// error rather than a guess, because the wrong variant decodes garbage.
+pub fn kind(dir: &Path) -> Result<Kind> {
+    if dir.join("streaming_config.json").exists() {
+        return Ok(Kind::Streaming);
+    }
+    let path = dir.join("config.json");
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let config: serde_json::Value = serde_json::from_str(&text).context("parsing config.json")?;
+    let layers = config
+        .get("decoder_num_hidden_layers")
+        .or_else(|| config.get("num_hidden_layers"))
+        .and_then(serde_json::Value::as_u64);
+    match layers {
+        Some(6) => Ok(Kind::Tiny),
+        Some(8) => Ok(Kind::Base),
+        other => bail!("not a known Moonshine model (decoder layers: {other:?})"),
+    }
+}
+
+fn quantization(dir: &Path) -> Quantization {
+    if dir.join("encoder_model.int8.onnx").exists() || dir.join("encoder.int8.onnx").exists() {
+        Quantization::Int8
+    } else {
+        Quantization::FP32
+    }
+}
+
+enum Model {
+    Whole(MoonshineModel),
+    Streaming(StreamingModel),
+}
+
+pub struct Moonshine {
+    model: Model,
+    label: String,
+    backend_used: String,
+}
+
+pub fn load(dir: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Transcriber>> {
+    if backend != Backend::Cpu {
+        // On DirectML Moonshine loads and uses the graphics card but produces garbage
+        // text (int8 and fp32, RTX 4070, ONNX Runtime 1.24.2): never offer it there.
+        bail!("Moonshine runs only on the processor (asked for {backend:?})");
+    }
+    onnx_accel::select(backend)?;
+    crate::log_capture::install();
+    crate::log_capture::take();
+    let kind = kind(dir)?;
+    let quant = quantization(dir);
+    let model = match kind {
+        Kind::Streaming => Model::Streaming(
+            StreamingModel::load(dir, threads.max(1), &quant)
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .with_context(|| format!("loading Moonshine streaming from {}", dir.display()))?,
+        ),
+        Kind::Tiny | Kind::Base => {
+            let variant = if kind == Kind::Tiny {
+                MoonshineVariant::Tiny
+            } else {
+                MoonshineVariant::Base
+            };
+            Model::Whole(
+                MoonshineModel::load(dir, variant, &quant)
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+                    .with_context(|| format!("loading Moonshine from {}", dir.display()))?,
+            )
+        }
+    };
+    let backend_used = onnx_accel::verify(
+        backend,
+        &crate::log_capture::take(),
+        aural_platform::gpu::process_gpu_memory_mb(),
+    )?;
+    Ok(Box::new(Moonshine {
+        model,
+        label: format!("moonshine-{kind:?} ({quant:?})").to_lowercase(),
+        backend_used,
+    }))
+}
+
+impl Transcriber for Moonshine {
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+
+    fn transcribe(&mut self, pcm16k: &[f32]) -> Result<String> {
+        let text = match &mut self.model {
+            Model::Whole(m) => m.transcribe_with(pcm16k, &MoonshineParams::default()),
+            Model::Streaming(m) => m.transcribe_with(pcm16k, &MoonshineStreamingParams::default()),
+        }
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .text;
+        Ok(text.trim().to_owned())
+    }
+
+    fn backend_used(&self) -> String {
+        self.backend_used.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir_with(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        for (name, body) in files {
+            std::fs::write(d.path().join(name), body).unwrap();
+        }
+        d
+    }
+
+    #[test]
+    fn size_is_read_from_the_decoder_layer_count() {
+        let tiny = dir_with(&[("config.json", r#"{"decoder_num_hidden_layers": 6}"#)]);
+        assert_eq!(kind(tiny.path()).unwrap(), Kind::Tiny);
+        let base = dir_with(&[("config.json", r#"{"decoder_num_hidden_layers": 8}"#)]);
+        assert_eq!(kind(base.path()).unwrap(), Kind::Base);
+    }
+
+    #[test]
+    fn a_streaming_config_means_the_streaming_model() {
+        let s = dir_with(&[("streaming_config.json", "{}"), ("config.json", "{}")]);
+        assert_eq!(kind(s.path()).unwrap(), Kind::Streaming);
+    }
+
+    #[test]
+    fn an_unknown_layout_is_an_error_not_a_guess() {
+        let none = dir_with(&[]);
+        assert!(kind(none.path()).is_err());
+        let odd = dir_with(&[("config.json", r#"{"decoder_num_hidden_layers": 12}"#)]);
+        assert!(kind(odd.path()).is_err());
+    }
+
+    #[test]
+    fn moonshine_runs_only_on_the_processor() {
+        // On DirectML Moonshine loads and uses the graphics card but produces garbage
+        // text (seen with int8 and fp32 on an RTX 4070), so it is refused outright.
+        for backend in [Backend::DirectMl, Backend::Vulkan, Backend::Cuda] {
+            let err = load(std::path::Path::new("does-not-exist"), backend, 4)
+                .err()
+                .unwrap();
+            assert!(err.to_string().contains("processor"), "{backend:?}: {err}");
+        }
+    }
+
+    /// Real Moonshine model (AURAL_TEST_MOONSHINE_DIR) on real speech, on the processor
+    /// and on the graphics card. Run with `--features onnx -- --ignored`.
+    #[test]
+    #[ignore]
+    fn moonshine_transcribes_real_speech() {
+        use crate::test_support::missed_words;
+        let dir = std::env::var("AURAL_TEST_MOONSHINE_DIR").expect("AURAL_TEST_MOONSHINE_DIR");
+        let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
+        let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
+        let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
+        for backend in [Backend::Cpu] {
+            let t0 = std::time::Instant::now();
+            let mut t = load(std::path::Path::new(&dir), backend, 4).unwrap();
+            let load_ms = t0.elapsed().as_millis();
+            let t1 = std::time::Instant::now();
+            let text = t.transcribe(&pcm).unwrap();
+            eprintln!(
+                "{}: load {load_ms} ms, transcribe {} ms: {text}",
+                t.backend_used(),
+                t1.elapsed().as_millis()
+            );
+            assert!(missed_words(&reference, &text) < 0.3, "{backend:?}: {text}");
+        }
+    }
+}

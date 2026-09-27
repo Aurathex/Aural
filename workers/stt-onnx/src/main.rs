@@ -4,7 +4,10 @@
 
 fn main() {
     let result = aural_stt_protocol::worker::serve_stdio(
-        vec![aural_engines::Engine::Parakeet],
+        vec![
+            aural_engines::Engine::Parakeet,
+            aural_engines::Engine::Moonshine,
+        ],
         |model, engine, backend, threads| {
             aural_engines::build_engine(engine, model, backend, threads)
         },

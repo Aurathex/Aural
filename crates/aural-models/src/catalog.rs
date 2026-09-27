@@ -125,7 +125,7 @@ impl ModelEntry {
 /// The runtime an engine's files are read by.
 fn runtime_of(engine: Engine) -> Runtime {
     match engine {
-        Engine::Parakeet => Runtime::Onnx,
+        Engine::Parakeet | Engine::Moonshine => Runtime::Onnx,
         Engine::Whisper => Runtime::Ggml,
     }
 }

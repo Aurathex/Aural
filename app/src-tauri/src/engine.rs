@@ -53,7 +53,7 @@ impl Default for EngineHost {
 /// Worker executables are installed next to aural.exe (Tauri sidecars).
 fn worker_exe(engine: Engine) -> PathBuf {
     let name = match engine {
-        Engine::Parakeet => "aural-stt-onnx.exe",
+        Engine::Parakeet | Engine::Moonshine => "aural-stt-onnx.exe",
         Engine::Whisper => "aural-stt-ggml.exe",
     };
     std::env::current_exe()
@@ -120,7 +120,7 @@ impl EngineHost {
             model: entry.id.clone(),
         });
         let model_path = match entry.engine {
-            Engine::Parakeet => store.dir(&entry.id),
+            Engine::Parakeet | Engine::Moonshine => store.dir(&entry.id),
             Engine::Whisper => store.dir(&entry.id).join(&entry.files[0].name),
         };
         let spawned = SttClient::spawn(WorkerSpec {

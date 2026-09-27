@@ -8,4 +8,6 @@ pub mod insert;
 pub mod install;
 
 #[cfg(windows)]
+pub mod gpu;
+#[cfg(windows)]
 pub mod hook;

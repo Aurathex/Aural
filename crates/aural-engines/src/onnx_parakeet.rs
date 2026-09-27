@@ -8,7 +8,7 @@
 
 use crate::Backend;
 use crate::Transcriber;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use std::path::Path;
 use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
 use transcribe_rs::onnx::Quantization;
@@ -16,6 +16,7 @@ use transcribe_rs::onnx::Quantization;
 pub struct Parakeet {
     model: ParakeetModel,
     label: String,
+    backend_used: String,
 }
 
 pub fn detect_quantization(model_dir: &Path) -> Quantization {
@@ -27,19 +28,25 @@ pub fn detect_quantization(model_dir: &Path) -> Quantization {
 }
 
 pub fn load(model_dir: &Path, backend: Backend, _threads: usize) -> Result<Box<dyn Transcriber>> {
-    if backend != Backend::Cpu {
-        bail!("parakeet benchmark currently supports only the cpu backend (got {backend:?})");
-    }
+    crate::onnx_accel::select(backend)?;
+    crate::log_capture::install();
+    crate::log_capture::take();
     let quant = detect_quantization(model_dir);
     let model = ParakeetModel::load(model_dir, &quant)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("loading parakeet from {}", model_dir.display()))?;
+    let backend_used = crate::onnx_accel::verify(
+        backend,
+        &crate::log_capture::take(),
+        aural_platform::gpu::process_gpu_memory_mb(),
+    )?;
     let name = model_dir
         .file_name()
         .map_or_else(|| "parakeet".into(), |n| n.to_string_lossy().into_owned());
     Ok(Box::new(Parakeet {
         model,
         label: format!("{name} ({quant:?})"),
+        backend_used,
     }))
 }
 
@@ -55,6 +62,10 @@ impl Transcriber for Parakeet {
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(result.text.trim().to_owned())
     }
+
+    fn backend_used(&self) -> String {
+        self.backend_used.clone()
+    }
 }
 
 #[cfg(test)]
@@ -63,11 +74,11 @@ mod tests {
     use crate::test_support::missed_words;
 
     #[test]
-    fn gpu_backends_rejected_before_touching_the_model() {
+    fn unsupported_gpu_backends_rejected_before_touching_the_model() {
         let err = load(std::path::Path::new("does-not-exist"), Backend::Cuda, 4)
             .err()
             .unwrap();
-        assert!(err.to_string().contains("cpu"), "{err}");
+        assert!(err.to_string().contains("Cuda"), "{err}");
     }
 
     #[test]
@@ -98,5 +109,27 @@ mod tests {
         let wer = missed_words(&reference, &text);
         assert!(!text.trim().is_empty());
         assert!(wer < 0.3, "wer {wer}: {text}");
+    }
+
+    /// Same as above on the graphics card via DirectML: it must really run there
+    /// (verified), and be as accurate. Run with `--features onnx -- --ignored`.
+    #[test]
+    #[ignore]
+    fn parakeet_runs_on_directml() {
+        let dir = std::env::var("AURAL_TEST_PARAKEET_DIR").expect("AURAL_TEST_PARAKEET_DIR");
+        let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
+        let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
+        let t0 = std::time::Instant::now();
+        let mut t = load(std::path::Path::new(&dir), Backend::DirectMl, 4).unwrap();
+        let load_ms = t0.elapsed().as_millis();
+        assert_eq!(t.backend_used(), "directml");
+        let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
+        let t1 = std::time::Instant::now();
+        let text = t.transcribe(&pcm).unwrap();
+        eprintln!(
+            "directml: load {load_ms} ms, transcribe {} ms: {text}",
+            t1.elapsed().as_millis()
+        );
+        assert!(missed_words(&reference, &text) < 0.3, "{text}");
     }
 }

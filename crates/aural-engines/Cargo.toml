@@ -8,7 +8,7 @@ description = "Local speech-to-text engine adapters for Aural (Parakeet via ONNX
 
 [features]
 # Engines are mutually exclusive: ONNX Runtime and whisper.cpp must not share a binary.
-onnx = ["dep:transcribe-rs", "transcribe-rs/onnx"]
+onnx = ["dep:transcribe-rs", "transcribe-rs/onnx", "transcribe-rs/ort-directml", "dep:log", "dep:aural-platform", "dep:serde_json"]
 ggml = ["dep:whisper-rs", "whisper-rs/log_backend", "dep:log"]
 vulkan = ["ggml", "whisper-rs/vulkan"]
 cuda = ["ggml", "whisper-rs/cuda"]
@@ -16,9 +16,11 @@ clap = ["dep:clap"]
 
 [dependencies]
 anyhow = "1.0.104"
+aural-platform = { path = "../aural-platform", optional = true }
 clap = { version = "4.6.7", features = ["derive"], optional = true }
 log = { version = "0.4", features = ["std"], optional = true }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1.0.151", optional = true }
 transcribe-rs = { version = "0.3.11", default-features = false, optional = true }
 whisper-rs = { version = "0.16.0", optional = true }
 

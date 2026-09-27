@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(feature = "onnx", feature = "ggml"))]
 compile_error!("features `onnx` and `ggml` are mutually exclusive (ONNX Runtime and whisper.cpp must not link into one binary); build them separately");
 
+#[cfg(any(feature = "onnx", feature = "ggml"))]
+mod log_capture;
+#[cfg(feature = "onnx")]
+pub mod onnx_accel;
+#[cfg(feature = "onnx")]
+pub mod onnx_moonshine;
 #[cfg(feature = "onnx")]
 pub mod onnx_parakeet;
 
@@ -25,6 +31,8 @@ pub enum Engine {
     Parakeet,
     /// whisper.cpp / ggml (feature `ggml`)
     Whisper,
+    /// Useful Sensors Moonshine via ONNX Runtime (feature `onnx`)
+    Moonshine,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -34,6 +42,10 @@ pub enum Backend {
     Cpu,
     Vulkan,
     Cuda,
+    /// Windows DirectML (any DirectX 12 graphics card: NVIDIA, AMD, Intel), for ONNX models.
+    #[serde(rename = "directml")]
+    #[cfg_attr(feature = "clap", value(name = "directml"))]
+    DirectMl,
 }
 
 /// One loaded STT engine. Input is always 16 kHz mono `f32`.
@@ -66,6 +78,12 @@ pub fn build_engine(
             return onnx_parakeet::load(model, backend, threads);
             #[cfg(not(feature = "onnx"))]
             anyhow::bail!("engine 'parakeet' is not compiled in; rebuild with --features onnx")
+        }
+        Engine::Moonshine => {
+            #[cfg(feature = "onnx")]
+            return onnx_moonshine::load(model, backend, threads);
+            #[cfg(not(feature = "onnx"))]
+            anyhow::bail!("engine 'moonshine' is not compiled in; rebuild with --features onnx")
         }
         Engine::Whisper => {
             #[cfg(feature = "ggml")]

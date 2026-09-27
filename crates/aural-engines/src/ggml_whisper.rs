@@ -57,6 +57,9 @@ pub fn verify_backend(requested: Backend, gpu_device: Option<&str>) -> Result<St
         Backend::Cpu => return Ok("cpu".into()),
         Backend::Vulkan => "Vulkan",
         Backend::Cuda => "CUDA",
+        Backend::DirectMl => {
+            bail!("whisper.cpp can't run on DirectML; use the processor or Vulkan")
+        }
     };
     match gpu_device {
         None => bail!("requested {requested:?} but whisper.cpp fell back to CPU"),
@@ -67,47 +70,18 @@ pub fn verify_backend(requested: Backend, gpu_device: Option<&str>) -> Result<St
     }
 }
 
-/// Captures native whisper.cpp/ggml log lines (routed through the `log` crate by
-/// whisper-rs's `log_backend`) so the init log can be inspected after loading.
+/// whisper.cpp's own log goes through whisper-rs's `log_backend` into the shared capture.
 mod capture {
-    use std::sync::{Mutex, Once};
+    use std::sync::Once;
 
-    static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    static INSTALL: Once = Once::new();
-
-    struct Capture;
-
-    impl log::Log for Capture {
-        fn enabled(&self, _: &log::Metadata) -> bool {
-            true
-        }
-        fn log(&self, record: &log::Record) {
-            let line = record.args().to_string();
-            if std::env::var_os("AURAL_BENCH_VERBOSE").is_some() {
-                eprintln!("{line}");
-            }
-            if let Ok(mut v) = LINES.lock() {
-                v.push(line);
-            }
-        }
-        fn flush(&self) {}
-    }
+    static HOOKS: Once = Once::new();
 
     pub fn install() {
-        INSTALL.call_once(|| {
-            if log::set_boxed_logger(Box::new(Capture)).is_ok() {
-                log::set_max_level(log::LevelFilter::Trace);
-            }
-            whisper_rs::install_logging_hooks();
-        });
+        crate::log_capture::install();
+        HOOKS.call_once(whisper_rs::install_logging_hooks);
     }
 
-    pub fn take() -> Vec<String> {
-        LINES
-            .lock()
-            .map(|mut v| std::mem::take(&mut *v))
-            .unwrap_or_default()
-    }
+    pub use crate::log_capture::take;
 }
 
 pub fn load(model: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Transcriber>> {
@@ -226,6 +200,10 @@ mod tests {
         let err = verify_backend(Backend::Vulkan, None).unwrap_err();
         assert!(err.to_string().contains("fell back to CPU"), "{err}");
         assert!(verify_backend(Backend::Cuda, Some("Vulkan0")).is_err());
+        assert!(
+            verify_backend(Backend::DirectMl, Some("Vulkan0")).is_err(),
+            "whisper.cpp has no DirectML backend"
+        );
         assert_eq!(
             verify_backend(Backend::Cuda, Some("CUDA0")).unwrap(),
             "cuda:CUDA0"
