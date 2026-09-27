@@ -48,7 +48,7 @@ pub fn estimate(
             rtf: reference.rtf * scale,
         }),
         load_ms: (reference.load_ms as f64 * scale).round() as u64,
-        ram_mb: margin(reference.ram_mb.max(v.min_ram_mb)),
+        ram_mb: margin(reference.ram_mb),
         vram_mb: (v.backend != Backend::Cpu).then(|| margin(reference.vram_mb)),
         spread: 1.0,
         passes: 0,
@@ -111,6 +111,28 @@ mod tests {
         assert_eq!(r.ram_mb, 1_200);
         assert_eq!(r.vram_mb, Some(960));
         assert_eq!(r.stability, Stability::Stable);
+    }
+
+    #[test]
+    fn memory_estimate_follows_the_measured_reference_not_the_minimum() {
+        // The catalog's minimum is a conservative install requirement (2 GB); the
+        // reference is what the model really used (870 MB). Showing 2.4 GB next to a
+        // measured 0.8 GB for a sibling model misleads.
+        let m = entry("parakeet-tdt-0.6b-v3-int8", Engine::Parakeet, false);
+        let mut v = variant(Backend::Cpu, 272);
+        v.min_ram_mb = 2_048;
+        v.reference.as_mut().unwrap().ram_mb = 870;
+        let r = estimate(
+            &m,
+            &v,
+            &[Calibration {
+                runtime: Runtime::Onnx,
+                ..cal(Backend::Cpu, 100, 100)
+            }],
+            &HardwareProfile::default(),
+        )
+        .unwrap();
+        assert_eq!(r.ram_mb, 1_044);
     }
 
     #[test]
