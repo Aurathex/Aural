@@ -39,7 +39,7 @@ pub struct VariantResult {
     pub ram_mb: u64,
     /// Graphics-card memory the worker used; None if Windows couldn't say.
     pub vram_mb: Option<u64>,
-    /// p95 / p50 latency over all passes.
+    /// p95 / p50 of the time per second of audio, over all passes.
     pub spread: f64,
     /// Passes over the clips that completed.
     pub passes: usize,
@@ -57,6 +57,20 @@ pub struct BenchTarget {
     pub engine: Engine,
     pub backend: Backend,
     pub threads: usize,
+}
+
+/// p95 / p50 of the time per second of audio: how much the speed varies from clip to
+/// clip, without longer clips counting as slower.
+pub fn latency_spread(ms_per_audio_second: &[f64]) -> f64 {
+    let mut v = ms_per_audio_second.to_vec();
+    v.sort_by(f64::total_cmp);
+    let p50 = aural_eval::metrics::nearest_rank(&v, 50.0);
+    let p95 = aural_eval::metrics::nearest_rank(&v, 95.0);
+    if p50 > 0.0 {
+        p95 / p50
+    } else {
+        1.0
+    }
 }
 
 /// Stable unless something went wrong or the speed varied too much.
@@ -135,6 +149,7 @@ pub fn benchmark_variant(
     r.load_ms = started.elapsed().as_millis() as u64;
 
     let mut latencies = Vec::with_capacity(clips.len() * passes);
+    let mut per_second = Vec::with_capacity(clips.len() * passes);
     let mut total_ms = 0u64;
     let mut audio_s = 0.0;
     let mut wer = WerStats::default();
@@ -154,6 +169,7 @@ pub fn benchmark_variant(
                 Ok(text) => {
                     let ms = t0.elapsed().as_millis() as u64;
                     latencies.push(ms);
+                    per_second.push(ms as f64 / secs.max(0.001));
                     total_ms += ms;
                     audio_s += secs;
                     if pass == 0 {
@@ -193,11 +209,7 @@ pub fn benchmark_variant(
 
     if r.passes > 0 || stopped_early {
         let m = summarize(&latencies, audio_s, total_ms, wer);
-        r.spread = if m.p50_ms > 0 {
-            m.p95_ms as f64 / m.p50_ms as f64
-        } else {
-            1.0
-        };
+        r.spread = latency_spread(&per_second);
         r.metrics = Some(m);
     }
     match failure {
@@ -214,6 +226,18 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(180);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn longer_clips_taking_longer_is_not_instability() {
+        // 5 s and 12 s clips at the same speed per second of audio: steady.
+        let per_second = [60.0, 60.0, 61.0, 59.0, 60.0];
+        assert!((latency_spread(&per_second) - 1.0).abs() < 0.05);
+        // Two clips in twenty 6x slower per second than the rest: unsteady.
+        let mut uneven = vec![60.0; 18];
+        uneven.extend([360.0, 360.0]);
+        assert!(latency_spread(&uneven) > MAX_SPREAD);
+        assert_eq!(latency_spread(&[]), 1.0);
+    }
 
     #[test]
     fn steady_speed_is_stable() {

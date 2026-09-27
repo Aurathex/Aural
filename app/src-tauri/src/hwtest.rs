@@ -78,6 +78,12 @@ fn calibrations(catalog: &Catalog, store: &ResultsStore) -> Vec<aural_models::Ca
     cal
 }
 
+/// Free memory for the labels: what is free now plus what the loaded dictation model
+/// holds (it would be released to run another one, and it obviously fits itself).
+pub fn free_for_labels(free_mb: u64, loaded_model_mb: Option<u64>) -> u64 {
+    free_mb + loaded_model_mb.unwrap_or(0)
+}
+
 /// "Parakeet on the graphics card" — how a variant is named to the user.
 pub fn variant_name(entry: &ModelEntry, backend: Backend) -> String {
     let place = if backend == Backend::Cpu {
@@ -435,6 +441,9 @@ pub fn spawn_runner(app: &Arc<App>) {
                 let mut jobs = lock(&app.hwtest.jobs);
                 loop {
                     if let Some(j) = jobs.pop_front() {
+                        // Cleared under the jobs lock: a cancel that drops queued jobs
+                        // can't land between taking this job and clearing the flag.
+                        app.hwtest.cancel.store(false, Ordering::SeqCst);
                         break j;
                     }
                     jobs = app
@@ -444,7 +453,6 @@ pub fn spawn_runner(app: &Arc<App>) {
                         .unwrap_or_else(|p| p.into_inner());
                 }
             };
-            app.hwtest.cancel.store(false, Ordering::SeqCst);
             match job {
                 Job::FullTest {
                     allow_probe_download,
@@ -470,10 +478,14 @@ pub fn spawn_runner(app: &Arc<App>) {
 }
 
 pub fn start(app: &Arc<App>, allow_probe_download: bool) {
-    if lock(&app.hwtest.status).running {
-        return;
+    {
+        // Check and set together, so two quick clicks queue one check.
+        let mut status = lock(&app.hwtest.status);
+        if status.running {
+            return;
+        }
+        status.running = true;
     }
-    lock(&app.hwtest.status).running = true;
     app.hwtest.push(Job::FullTest {
         allow_probe_download,
     });
@@ -507,10 +519,17 @@ pub fn evaluation(app: &App) -> Evaluation {
     // Memory limits use what is free now, not what was free when Aural started.
     let mut hw = app.hw.clone();
     let free = aural_models::recommend::free_ram_mb();
+    let results = lock(&app.hwtest.results);
     if free > 0 {
-        hw.free_ram_mb = free;
+        let loaded = app
+            .engine
+            .is_ready()
+            .then(|| app.settings().stt.active_variant)
+            .flatten()
+            .and_then(|v| results.get(&v).map(|r| r.ram_mb));
+        hw.free_ram_mb = free_for_labels(free, loaded);
     }
-    evaluate(&app.catalog, &lock(&app.hwtest.results), &hw, words)
+    evaluate(&app.catalog, &results, &hw, words)
 }
 
 fn clip_words(clips: &[Clip]) -> usize {
@@ -736,17 +755,19 @@ pub fn after_load_failure(app: &Arc<App>, variant: &str, message: &str) {
     if let Some((to, notice)) =
         fallback_after_load_failure(variant, &e.labels, &app.catalog, &installed)
     {
-        let mut s = app.settings();
-        s.stt.active_model =
-            aural_models::catalog::split_variant_id(&to).map(|(m, _)| m.to_owned());
-        s.stt.active_variant = Some(to);
-        if app.save_settings(s).is_ok() {
+        if app.update_settings(|s| set_active(s, &to)).is_ok() {
             app.set_notice(notice);
             app.reload_engine();
         }
     }
     app.broadcast();
 }
+fn set_active(s: &mut aural_core::settings::Settings, variant: &str) {
+    s.stt.active_model =
+        aural_models::catalog::split_variant_id(variant).map(|(m, _)| m.to_owned());
+    s.stt.active_variant = Some(variant.to_owned());
+}
+
 /// Keeps the user's model unless it now won't work well here; then switches and says so.
 fn apply_active_policy(app: &Arc<App>) {
     // Results from other hardware aren't a reason to switch; the user is asked to re-check.
@@ -763,11 +784,9 @@ fn apply_active_policy(app: &Arc<App>) {
     if let ActiveDecision::Switch { to, notice } =
         active_after_test(current.as_deref(), &e.labels, &app.catalog, &installed)
     {
-        let mut s = app.settings();
-        s.stt.active_model =
-            aural_models::catalog::split_variant_id(&to).map(|(m, _)| m.to_owned());
-        s.stt.active_variant = Some(to);
-        if app.save_settings(s).is_ok() {
+        // Don't swap the model out from under a dictation in progress.
+        wait_for_idle(app);
+        if app.update_settings(|s| set_active(s, &to)).is_ok() {
             app.set_notice(notice);
             app.reload_engine();
         }
@@ -1136,6 +1155,14 @@ mod tests {
         let e = evaluate(&Catalog::builtin(), &store, &laptop(false), 396);
         let pk = e.results.iter().find(|r| r.variant == PK_CPU).unwrap();
         assert!(!pk.measured);
+    }
+
+    #[test]
+    fn the_loaded_model_s_own_memory_counts_as_available() {
+        // Parakeet is loaded and holds 770 MB, so free memory is 770 MB lower than it
+        // would be without it; that must not make Parakeet itself "not fit".
+        assert_eq!(free_for_labels(900, Some(770)), 1_670);
+        assert_eq!(free_for_labels(900, None), 900);
     }
 
     #[test]

@@ -174,7 +174,9 @@ fn unsuitable(v: &Variant, r: &VariantResult, hw: &HardwareProfile) -> Option<Re
         return Some(Reason::NoGpu);
     }
     if let Some(error) = &r.error {
-        return Some(if on_gpu {
+        // "Didn't work on the graphics card" only when nothing ran there; a run that
+        // started and then timed out or crashed is unstable.
+        return Some(if on_gpu && r.metrics.is_none() {
             Reason::GpuFailed {
                 detail: error.clone(),
             }
@@ -640,6 +642,52 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_graphics_card_run_that_timed_out_is_unstable_not_a_failed_card() {
+        let hw = hw(
+            16_000,
+            8_000,
+            8,
+            vec![gpu("NVIDIA GeForce RTX 4070", Vendor::Nvidia, 8_188, false)],
+        );
+        let (m, v, mut res) = r(TURBO, Backend::Vulkan, 0.022, 300, 0.06, 600).row();
+        // It started and transcribed, then one clip took too long.
+        res.error = Some("clip c7: timed out".into());
+        res.stability = Stability::Unstable {
+            reason: "took too long and was stopped".into(),
+        };
+        let l = labels(&[(m, v, res)], &hw, WORDS);
+        assert_eq!(
+            l[&id(TURBO, "vulkan")],
+            [Label::WontWorkWell {
+                reason: Reason::Unstable {
+                    detail: "took too long and was stopped".into()
+                }
+            }]
+        );
+    }
+
+    #[test]
+    fn an_estimate_needs_to_be_clearly_better_to_beat_a_measured_model() {
+        // Both inside the budget; the estimate is more accurate by more than the margin
+        // but not 20% faster, so the measured model stays Recommended.
+        let hw = hw(16_000, 8_000, 8, vec![]);
+        let rows = vec![
+            r(PK, Backend::Cpu, 0.0400, 300, 0.06, 861).row(),
+            r(TURBO, Backend::Cpu, 0.0232, 280, 0.05, 1_500).est().row(),
+        ];
+        let l = labels(&rows, &hw, WORDS);
+        // The measured Parakeet is outside the margin of the best, so it isn't a candidate;
+        // with no measured candidate left, the estimate is recommended.
+        assert_eq!(holder(&l, &Label::Recommended), [id(TURBO, "cpu")]);
+        let rows = vec![
+            r(PK, Backend::Cpu, 0.0250, 300, 0.06, 861).row(),
+            r(TURBO, Backend::Cpu, 0.0232, 280, 0.05, 1_500).est().row(),
+        ];
+        let l = labels(&rows, &hw, WORDS);
+        assert_eq!(holder(&l, &Label::Recommended), [id(PK, "cpu")]);
     }
 
     #[test]

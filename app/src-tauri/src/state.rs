@@ -78,6 +78,17 @@ impl App {
         *lock(&self.notice) = Some(msg.into());
     }
 
+    /// Read-modify-write under one lock, so an automatic change can't overwrite a save
+    /// made at the same moment.
+    pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) -> anyhow::Result<()> {
+        let mut guard = lock(&self.settings);
+        let mut s = guard.clone();
+        f(&mut s);
+        settings::save(&self.paths.settings_file(), &s)?;
+        *guard = s;
+        Ok(())
+    }
+
     pub fn save_settings(&self, s: Settings) -> anyhow::Result<()> {
         settings::save(&self.paths.settings_file(), &s)?;
         *lock(&self.settings) = s;

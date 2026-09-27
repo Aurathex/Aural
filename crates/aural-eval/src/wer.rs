@@ -58,7 +58,8 @@ impl std::ops::Add for WerStats {
     }
 }
 
-/// Half-width of the 95% confidence interval of a WER measured over `words`\n/// reference words: 1.96 * sqrt(p(1 - p) / N).
+/// Half-width of the 95% confidence interval of a WER measured over `words`
+/// reference words: 1.96 * sqrt(p(1 - p) / N).
 pub fn margin_95(wer: f64, words: usize) -> f64 {
     if words == 0 {
         return 1.0;
