@@ -1,0 +1,19 @@
+# Weekly version-update pull requests. Security updates are separate and immediate once
+# "Dependabot security updates" is on (see docs/releasing.md). Every update still goes
+# through CI, cargo-deny and dependency review before it can merge.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

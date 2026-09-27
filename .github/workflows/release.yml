@@ -8,7 +8,9 @@ on:
     tags: ["v*.*.*"]
 
 permissions:
-  contents: write
+  contents: write      # create the draft release
+  id-token: write      # build provenance attestation
+  attestations: write
 
 env:
   # Must match LICENSE.md; used for the WinGet manifest.
@@ -38,6 +40,13 @@ jobs:
           if ("v$version" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} != app version $version" }
           "VERSION=$version" | Out-File -Append $env:GITHUB_ENV
 
+      - name: Check lock files are current
+        shell: pwsh
+        run: |
+          # Fails if Cargo.lock would need changes; npm ci below fails likewise for package-lock.json.
+          cargo metadata --locked --format-version 1 > $null
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo.lock is out of date' }
+
       - name: Build speech workers and stage runtime
         shell: pwsh
         run: ./scripts/prepare-bundle.ps1 -BuildProfile release
@@ -48,15 +57,49 @@ jobs:
           npm ci
           npx tauri build
 
-      - name: Checksums and WinGet manifests
+      - name: WinGet manifests, build info and checksums
         shell: pwsh
         run: |
           $installer = "target/release/bundle/nsis/Aural_${env:VERSION}_x64-setup.exe"
-          $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
-          "$hash  $(Split-Path $installer -Leaf)" | Out-File -Encoding ascii SHA256SUMS.txt
+          Copy-Item $installer .
           $dir = ./packaging/winget/New-WingetManifests.ps1 -Version $env:VERSION -Installer $installer `
             -Repository "${{ github.repository }}" -License $env:LICENSE_ID -OutDir winget-out
           Compress-Archive -Path "winget-out/manifests" -DestinationPath "winget-manifests-${env:VERSION}.zip"
+          # What was built, from what, with what: enough to rebuild and compare.
+          function Sha([string]$p) { (Get-FileHash -Algorithm SHA256 $p).Hash.ToLowerInvariant() }
+          @(
+            "Aural $env:VERSION",
+            "repository: ${{ github.repository }}",
+            "commit: ${{ github.sha }}",
+            "tag: ${{ github.ref_name }}",
+            "workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "runner image: $env:ImageOS $env:ImageVersion",
+            "rustc: $(rustc --version)",
+            "cargo: $(cargo --version)",
+            "node: $(node --version)",
+            "npm: $(npm --version)",
+            "tauri-cli: $(npx --prefix app tauri --version)",
+            "cmake: $((cmake --version)[0])",
+            "Cargo.lock sha256: $(Sha Cargo.lock)",
+            "app/package-lock.json sha256: $(Sha app/package-lock.json)",
+            "manifests/catalog.v1.json sha256: $(Sha manifests/catalog.v1.json)"
+          ) | Out-File -Encoding ascii BUILD-INFO.txt
+          # Bundled Microsoft DLLs come from the build machine, so record exactly which.
+          Get-ChildItem app/src-tauri/runtime -Filter *.dll | ForEach-Object {
+            "$($_.Name): $($_.VersionInfo.FileVersion) sha256 $(Sha $_.FullName)"
+          } | Out-File -Encoding ascii -Append BUILD-INFO.txt
+          $files = @("Aural_${env:VERSION}_x64-setup.exe", "winget-manifests-${env:VERSION}.zip", 'BUILD-INFO.txt')
+          $files | ForEach-Object { "$(Sha $_)  $_" } | Out-File -Encoding ascii SHA256SUMS.txt
+          Get-Content BUILD-INFO.txt, SHA256SUMS.txt
+
+      # Lets anyone check with `gh attestation verify <file> --repo Aurathex/Aural` that a
+      # download was built by this workflow from this commit.
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            Aural_${{ env.VERSION }}_x64-setup.exe
+            winget-manifests-${{ env.VERSION }}.zip
 
       - name: Draft release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
@@ -64,6 +107,7 @@ jobs:
           draft: true
           name: Aural ${{ env.VERSION }}
           files: |
-            target/release/bundle/nsis/Aural_${{ env.VERSION }}_x64-setup.exe
+            Aural_${{ env.VERSION }}_x64-setup.exe
             SHA256SUMS.txt
+            BUILD-INFO.txt
             winget-manifests-${{ env.VERSION }}.zip
