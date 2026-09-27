@@ -3,15 +3,16 @@
 //! `config.json` (tiny/base), or `streaming_config.json` plus the streaming model's
 //! files for the streaming variant.
 //!
-//! The streaming model is run on whole recordings here, like the others; showing words
-//! while the user speaks is sub-project B.
+//! The streaming model also streams: audio is encoded as it arrives and the decoder
+//! reads what has been encoded so far (live text, see Stream).
 
 use crate::onnx_accel;
-use crate::{Backend, Transcriber};
+use crate::{Backend, Stream, Transcriber};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use transcribe_rs::onnx::moonshine::{
-    MoonshineModel, MoonshineParams, MoonshineStreamingParams, MoonshineVariant, StreamingModel,
+    LiveStream, MoonshineModel, MoonshineParams, MoonshineStreamingParams, MoonshineVariant,
+    StreamingModel,
 };
 use transcribe_rs::onnx::Quantization;
 
@@ -52,12 +53,13 @@ fn quantization(dir: &Path) -> Quantization {
 }
 
 enum Model {
-    Whole(MoonshineModel),
-    Streaming(StreamingModel),
+    Whole(Box<MoonshineModel>),
+    Streaming(Box<StreamingModel>),
 }
 
 pub struct Moonshine {
     model: Model,
+    live: Option<LiveStream>,
     label: String,
     backend_used: String,
 }
@@ -74,22 +76,22 @@ pub fn load(dir: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Tran
     let kind = kind(dir)?;
     let quant = quantization(dir);
     let model = match kind {
-        Kind::Streaming => Model::Streaming(
+        Kind::Streaming => Model::Streaming(Box::new(
             StreamingModel::load(dir, threads.max(1), &quant)
                 .map_err(|e| anyhow::anyhow!("{e}"))
                 .with_context(|| format!("loading Moonshine streaming from {}", dir.display()))?,
-        ),
+        )),
         Kind::Tiny | Kind::Base => {
             let variant = if kind == Kind::Tiny {
                 MoonshineVariant::Tiny
             } else {
                 MoonshineVariant::Base
             };
-            Model::Whole(
+            Model::Whole(Box::new(
                 MoonshineModel::load(dir, variant, &quant)
                     .map_err(|e| anyhow::anyhow!("{e}"))
                     .with_context(|| format!("loading Moonshine from {}", dir.display()))?,
-            )
+            ))
         }
     };
     let backend_used = onnx_accel::verify(
@@ -100,6 +102,7 @@ pub fn load(dir: &Path, backend: Backend, threads: usize) -> Result<Box<dyn Tran
     )?;
     Ok(Box::new(Moonshine {
         model,
+        live: None,
         label: format!("moonshine-{kind:?} ({quant:?})").to_lowercase(),
         backend_used,
     }))
@@ -122,6 +125,51 @@ impl Transcriber for Moonshine {
 
     fn backend_used(&self) -> String {
         self.backend_used.clone()
+    }
+
+    fn stream(&mut self) -> Option<&mut dyn Stream> {
+        match self.model {
+            Model::Streaming(_) => Some(self),
+            Model::Whole(_) => None,
+        }
+    }
+}
+
+impl Stream for Moonshine {
+    fn begin(&mut self) -> Result<()> {
+        let Model::Streaming(m) = &self.model else {
+            bail!("this Moonshine model cannot stream");
+        };
+        self.live = Some(m.start_stream());
+        Ok(())
+    }
+
+    fn push(&mut self, pcm16k: &[f32]) -> Result<()> {
+        let (Model::Streaming(m), Some(s)) = (&mut self.model, self.live.as_mut()) else {
+            bail!("no live stream is open");
+        };
+        m.push_audio(s, pcm16k).map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    fn partial(&mut self) -> Result<String> {
+        let (Model::Streaming(m), Some(s)) = (&mut self.model, self.live.as_mut()) else {
+            bail!("no live stream is open");
+        };
+        m.partial_text(s).map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    fn finish(&mut self) -> Result<String> {
+        let (Model::Streaming(m), Some(s)) = (&mut self.model, self.live.take()) else {
+            bail!("no live stream is open");
+        };
+        Ok(m.finish_stream(s)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .trim()
+            .to_owned())
+    }
+
+    fn cancel(&mut self) {
+        self.live = None;
     }
 }
 
@@ -169,6 +217,49 @@ mod tests {
                 .unwrap();
             assert!(err.to_string().contains("processor"), "{backend:?}: {err}");
         }
+    }
+
+    /// Real Moonshine Streaming model (AURAL_TEST_MOONSHINE_STREAM_DIR) fed in 320 ms
+    /// pieces like the microphone: text must appear before the end and the final text
+    /// must match the recording. Run with `--features onnx -- --ignored`.
+    #[test]
+    #[ignore]
+    fn moonshine_streaming_shows_words_while_audio_arrives() {
+        let _ort = crate::test_support::ort_lock();
+        use crate::live::{LiveMode, LiveSession};
+        use crate::test_support::missed_words;
+        let dir = std::env::var("AURAL_TEST_MOONSHINE_STREAM_DIR").expect("dir");
+        let wav = std::env::var("AURAL_TEST_WAV").expect("AURAL_TEST_WAV");
+        let reference = std::env::var("AURAL_TEST_REF").expect("AURAL_TEST_REF");
+        let pcm = aural_audio::dsp::load_wav_16k_mono(std::path::Path::new(&wav)).unwrap();
+        let mut t = load(std::path::Path::new(&dir), Backend::Cpu, 4).unwrap();
+        let mut s = LiveSession::begin(t.as_mut()).unwrap();
+        assert_eq!(s.mode(), LiveMode::Native);
+        let mut shown_before_end = String::new();
+        let mut slowest = 0u128;
+        for chunk in pcm.chunks(5_120) {
+            let t0 = std::time::Instant::now();
+            let text = s.push(t.as_mut(), chunk).unwrap();
+            slowest = slowest.max(t0.elapsed().as_millis());
+            shown_before_end = format!("{} {}", text.stable, text.tentative);
+            eprintln!(
+                "{:>5} ms | {} [{}]",
+                t0.elapsed().as_millis(),
+                text.stable,
+                text.tentative
+            );
+        }
+        let t0 = std::time::Instant::now();
+        let text = s.finish(t.as_mut()).unwrap();
+        eprintln!(
+            "final in {} ms (slowest push {slowest} ms): {text}",
+            t0.elapsed().as_millis()
+        );
+        assert!(
+            shown_before_end.split_whitespace().count() >= 3,
+            "{shown_before_end}"
+        );
+        assert!(missed_words(&reference, &text) < 0.3, "{text}");
     }
 
     /// Real Moonshine model (AURAL_TEST_MOONSHINE_DIR) on real speech, on the processor

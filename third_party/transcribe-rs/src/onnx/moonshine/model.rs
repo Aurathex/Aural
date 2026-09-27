@@ -346,13 +346,13 @@ impl KVCache {
 
 // ---- Tokenizer ----
 
-struct MoonshineTokenizer {
+pub(crate) struct MoonshineTokenizer {
     vocab: HashMap<u32, String>,
     special_token_ids: Vec<u32>,
 }
 
 impl MoonshineTokenizer {
-    fn new(model_dir: &Path) -> Result<Self, TranscribeError> {
+    pub(crate) fn new(model_dir: &Path) -> Result<Self, TranscribeError> {
         let tokenizer_path = model_dir.join("tokenizer.json");
 
         if !tokenizer_path.exists() {
@@ -401,7 +401,7 @@ impl MoonshineTokenizer {
         })
     }
 
-    fn decode(&self, token_ids: &[i64]) -> Result<String, TranscribeError> {
+    pub(crate) fn decode(&self, token_ids: &[i64]) -> Result<String, TranscribeError> {
         let mut tokens: Vec<String> = Vec::with_capacity(token_ids.len());
 
         for &id in token_ids {

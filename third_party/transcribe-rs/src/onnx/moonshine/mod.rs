@@ -2,7 +2,7 @@ mod model;
 mod streaming;
 
 pub use model::{MoonshineModel, MoonshineParams};
-pub use streaming::{MoonshineStreamingParams, StreamingConfig, StreamingModel, StreamingState};
+pub use streaming::{LiveStream, MoonshineStreamingParams, StreamingConfig, StreamingModel, StreamingState};
 
 pub const SAMPLE_RATE: u32 = 16000;
 

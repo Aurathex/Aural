@@ -62,7 +62,27 @@ pub trait Transcriber {
     fn backend_used(&self) -> String {
         "cpu".into()
     }
+
+    /// True streaming: engines that encode audio as it arrives. Engines without it get
+    /// live text from [`live::LiveSession`]'s phrase-by-phrase mode instead.
+    fn stream(&mut self) -> Option<&mut dyn Stream> {
+        None
+    }
 }
+
+/// One live stream at a time, owned by the engine.
+pub trait Stream {
+    fn begin(&mut self) -> Result<()>;
+    /// New 16 kHz mono audio since the last push.
+    fn push(&mut self, pcm16k: &[f32]) -> Result<()>;
+    /// Text for the audio so far; may still change.
+    fn partial(&mut self) -> Result<String>;
+    /// Final text; closes the stream.
+    fn finish(&mut self) -> Result<String>;
+    fn cancel(&mut self);
+}
+
+pub mod live;
 
 /// Construct the requested engine, or explain which feature is missing.
 #[allow(unused_variables)]

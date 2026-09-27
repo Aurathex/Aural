@@ -269,6 +269,37 @@ impl BinTokenizer {
     }
 }
 
+/// Aural patch: the published ONNX exports ship `tokenizer.json`, not `tokenizer.bin`.
+enum StreamTokenizer {
+    Bin(BinTokenizer),
+    Json(super::model::MoonshineTokenizer),
+}
+
+impl StreamTokenizer {
+    fn new(dir: &Path) -> Result<Self, TranscribeError> {
+        if dir.join("tokenizer.bin").exists() {
+            Ok(Self::Bin(BinTokenizer::new(dir)?))
+        } else {
+            Ok(Self::Json(super::model::MoonshineTokenizer::new(dir)?))
+        }
+    }
+
+    fn decode(&self, tokens: &[i64]) -> Result<String, TranscribeError> {
+        match self {
+            Self::Bin(t) => t.decode(tokens),
+            Self::Json(t) => Ok(t.decode(tokens)?.trim().to_string()),
+        }
+    }
+}
+
+/// Aural patch: an open live stream. Audio is encoded as it arrives (the encoder never
+/// sees the same audio twice); `pending` holds samples short of one frontend chunk.
+pub struct LiveStream {
+    state: StreamingState,
+    pending: Vec<f32>,
+    samples: usize,
+}
+
 /// Streaming Moonshine model with 5 ONNX sessions.
 pub struct StreamingModel {
     frontend: Session,
@@ -276,7 +307,7 @@ pub struct StreamingModel {
     adapter: Session,
     cross_kv: Session,
     decoder_kv: Session,
-    tokenizer: BinTokenizer,
+    tokenizer: StreamTokenizer,
     config: StreamingConfig,
 }
 
@@ -329,7 +360,7 @@ impl StreamingModel {
         let cross_kv = load("cross_kv")?;
         let decoder_kv = load("decoder_kv")?;
 
-        let tokenizer = BinTokenizer::new(model_dir)?;
+        let tokenizer = StreamTokenizer::new(model_dir)?;
 
         log::info!("Loaded streaming model from {:?}", model_dir);
 
@@ -361,6 +392,74 @@ impl StreamingModel {
 
     fn create_state(&self) -> StreamingState {
         StreamingState::new(&self.config)
+    }
+
+    /// Aural patch: begin a live stream.
+    pub fn start_stream(&self) -> LiveStream {
+        LiveStream {
+            state: self.create_state(),
+            pending: Vec::new(),
+            samples: 0,
+        }
+    }
+
+    /// Aural patch: feed new audio. Runs the frontend, encoder and adapter on the new
+    /// audio only; the last `total_lookahead` frames wait for more audio.
+    pub fn push_audio(&mut self, s: &mut LiveStream, pcm: &[f32]) -> Result<(), TranscribeError> {
+        s.pending.extend_from_slice(pcm);
+        s.samples += pcm.len();
+        let whole = s.pending.len() / CHUNK_SIZE * CHUNK_SIZE;
+        let ready: Vec<f32> = s.pending.drain(..whole).collect();
+        for chunk in ready.chunks(CHUNK_SIZE) {
+            self.process_audio_chunk(&mut s.state, chunk)?;
+        }
+        self.encode_streaming(&mut s.state, false)?;
+        Ok(())
+    }
+
+    /// Aural patch: text for the audio encoded so far (the decoder re-reads the encoded
+    /// audio; the audio itself is not encoded again).
+    pub fn partial_text(&mut self, s: &mut LiveStream) -> Result<String, TranscribeError> {
+        self.decode_stream(s)
+    }
+
+    /// Aural patch: encode what is left and return the final text.
+    pub fn finish_stream(&mut self, mut s: LiveStream) -> Result<String, TranscribeError> {
+        let rest = std::mem::take(&mut s.pending);
+        if !rest.is_empty() {
+            self.process_audio_chunk(&mut s.state, &rest)?;
+        }
+        self.encode_streaming(&mut s.state, true)?;
+        self.decode_stream(&mut s)
+    }
+
+    fn decode_stream(&mut self, s: &mut LiveStream) -> Result<String, TranscribeError> {
+        let state = &mut s.state;
+        if state.memory_len == 0 {
+            return Ok(String::new());
+        }
+        // Each decode starts from the beginning of the text with a fresh self-attention
+        // cache; cross-attention follows the (grown) encoded audio.
+        state.k_self.clear();
+        state.v_self.clear();
+        state.cache_seq_len = 0;
+        state.cross_kv_valid = false;
+        let secs = s.samples as f32 / SAMPLE_RATE as f32;
+        let max_tokens = ((secs * 6.5).ceil() as usize).clamp(1, self.config.max_seq_len);
+        let mut greedy = GreedyDecoder::new(self.config.eos_id);
+        let mut tokens = Vec::new();
+        let mut current = self.config.bos_id;
+        for _ in 0..max_tokens {
+            let logits = self.decode_step_logits(state, current)?;
+            match greedy.next_token(&logits) {
+                Some(t) => {
+                    tokens.push(t);
+                    current = t;
+                }
+                None => break,
+            }
+        }
+        self.tokenizer.decode(&tokens)
     }
 
     fn process_audio_chunk(
