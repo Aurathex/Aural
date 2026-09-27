@@ -11,4 +11,5 @@ pub mod worker;
 /// Bumped on any incompatible change to `msg`.
 /// 2: adds `Stats`.
 /// 3: adds live text (`LiveBegin`, `LiveAudio`, `LiveEnd`, `LiveCancel`).
-pub const PROTOCOL_VERSION: u32 = 3;
+/// 4: adds text models (`LoadText`, `Generate`).
+pub const PROTOCOL_VERSION: u32 = 4;

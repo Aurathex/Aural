@@ -14,6 +14,8 @@ mod log_capture;
 #[cfg(feature = "onnx")]
 pub mod onnx_accel;
 #[cfg(feature = "onnx")]
+pub mod onnx_llm;
+#[cfg(feature = "onnx")]
 pub mod onnx_moonshine;
 #[cfg(feature = "onnx")]
 pub mod onnx_parakeet;
@@ -68,6 +70,29 @@ pub trait Transcriber {
     fn stream(&mut self) -> Option<&mut dyn Stream> {
         None
     }
+}
+
+/// A local language model for AI cleanup (text in, text out).
+pub trait TextModel {
+    fn label(&self) -> String;
+    /// Answer `user` following `system` and the example (input, answer) turns, with at
+    /// most `max_tokens` tokens.
+    fn generate(
+        &mut self,
+        system: &str,
+        examples: &[(String, String)],
+        user: &str,
+        max_tokens: usize,
+    ) -> Result<String>;
+}
+
+/// Load a text model folder (ONNX, feature `onnx`).
+#[allow(unused_variables)]
+pub fn build_text_model(dir: &std::path::Path, threads: usize) -> Result<Box<dyn TextModel>> {
+    #[cfg(feature = "onnx")]
+    return onnx_llm::load(dir, threads);
+    #[cfg(not(feature = "onnx"))]
+    anyhow::bail!("text models are not compiled in; rebuild with --features onnx")
 }
 
 /// One live stream at a time, owned by the engine.

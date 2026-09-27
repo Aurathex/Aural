@@ -48,6 +48,7 @@ ignore = [
   { id = "RUSTSEC-2025-0081", reason = "unic-char-property unmaintained; transitive via tauri-utils/urlpattern" },
   { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version unmaintained; transitive via tauri-utils/urlpattern" },
   { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident unmaintained; transitive via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained (no vulnerability); compile-time macro used by tokenizers (AI cleanup text models)" },
 ]
 
 [sources]

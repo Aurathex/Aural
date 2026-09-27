@@ -38,6 +38,19 @@ pub enum Request {
     LiveCancel {
         id: u64,
     },
+    /// Load a text model (AI cleanup) into this worker, replacing any other.
+    LoadText {
+        model: PathBuf,
+        threads: usize,
+    },
+    /// Answered with `Generated`.
+    Generate {
+        id: u64,
+        system: String,
+        examples: Vec<(String, String)>,
+        user: String,
+        max_tokens: u32,
+    },
     Shutdown,
 }
 
@@ -71,6 +84,15 @@ pub enum Response {
         id: u64,
         stable: String,
         tentative: String,
+        ms: u64,
+    },
+    TextLoaded {
+        label: String,
+        ms: u64,
+    },
+    Generated {
+        id: u64,
+        text: String,
         ms: u64,
     },
     Stats {

@@ -464,6 +464,67 @@ impl SttClient {
         }
     }
 
+    /// Load a text model (AI cleanup). A worker used for text holds no speech model.
+    pub fn load_text(
+        &mut self,
+        model: PathBuf,
+        threads: usize,
+        timeout: Duration,
+    ) -> Result<String, ClientError> {
+        if self.is_stopped() {
+            return Err(ClientError::Stopped);
+        }
+        let proc = self.proc.as_mut().ok_or(ClientError::NotLoaded)?;
+        proc.send(&Request::LoadText { model, threads }, None)?;
+        loop {
+            match proc.recv(timeout)? {
+                Response::TextLoaded { label, .. } => {
+                    self.label = Some(label.clone());
+                    return Ok(label);
+                }
+                Response::Error { id: None, message } => return Err(ClientError::Engine(message)),
+                _ => continue,
+            }
+        }
+    }
+
+    /// Ask the text model. Not retried: AI cleanup falls back to the light result.
+    pub fn generate(
+        &mut self,
+        system: &str,
+        examples: &[(String, String)],
+        user: &str,
+        max_tokens: u32,
+        timeout: Duration,
+    ) -> Result<String, ClientError> {
+        if self.is_stopped() {
+            return Err(ClientError::Stopped);
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        let proc = self.proc.as_mut().ok_or(ClientError::NotLoaded)?;
+        proc.send(
+            &Request::Generate {
+                id,
+                system: system.to_owned(),
+                examples: examples.to_vec(),
+                user: user.to_owned(),
+                max_tokens,
+            },
+            None,
+        )?;
+        loop {
+            match proc.recv(timeout)? {
+                Response::Generated { id: got, text, .. } if got == id => return Ok(text),
+                Response::Error {
+                    id: Some(got),
+                    message,
+                } if got == id => return Err(ClientError::Engine(message)),
+                _ => continue,
+            }
+        }
+    }
+
     /// Transcribe 16 kHz mono audio. On a crash or timeout the worker is replaced, the
     /// model reloaded and the request retried once.
     pub fn transcribe(&mut self, pcm: &[f32], timeout: Duration) -> Result<String, ClientError> {

@@ -5,7 +5,7 @@ use crate::msg::{Request, Response};
 use crate::PROTOCOL_VERSION;
 use anyhow::Result;
 use aural_engines::live::LiveSession;
-use aural_engines::{Backend, Engine, Transcriber};
+use aural_engines::{Backend, Engine, TextModel, Transcriber};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Instant;
@@ -13,11 +13,25 @@ use std::time::Instant;
 pub type Builder<'a> =
     dyn FnMut(&Path, Engine, Backend, usize) -> Result<Box<dyn Transcriber>> + 'a;
 
+/// Serve speech models only (text-model requests are answered with an error).
 pub fn serve<R: Read, W: Write>(
+    input: R,
+    output: &mut W,
+    engines: Vec<Engine>,
+    build: impl FnMut(&Path, Engine, Backend, usize) -> Result<Box<dyn Transcriber>>,
+) -> Result<()> {
+    serve_all(input, output, engines, build, |_, _| {
+        anyhow::bail!("this worker has no text models")
+    })
+}
+
+/// Serve speech models and, on request, one text model (AI cleanup).
+pub fn serve_all<R: Read, W: Write>(
     mut input: R,
     output: &mut W,
     engines: Vec<Engine>,
     mut build: impl FnMut(&Path, Engine, Backend, usize) -> Result<Box<dyn Transcriber>>,
+    mut build_text: impl FnMut(&Path, usize) -> Result<Box<dyn TextModel>>,
 ) -> Result<()> {
     write_msg(
         output,
@@ -28,8 +42,49 @@ pub fn serve<R: Read, W: Write>(
     )?;
     let mut engine: Option<Box<dyn Transcriber>> = None;
     let mut live: Option<(u64, LiveSession)> = None;
+    let mut text: Option<Box<dyn TextModel>> = None;
     while let Some(req) = read_msg::<_, Request>(&mut input)? {
         match req {
+            Request::LoadText { model, threads } => {
+                let t0 = Instant::now();
+                text = None;
+                let resp = match build_text(&model, threads) {
+                    Ok(m) => {
+                        let r = Response::TextLoaded {
+                            label: m.label(),
+                            ms: t0.elapsed().as_millis() as u64,
+                        };
+                        text = Some(m);
+                        r
+                    }
+                    Err(e) => Response::Error {
+                        id: None,
+                        message: format!("{e:#}"),
+                    },
+                };
+                write_msg(output, &resp)?;
+            }
+            Request::Generate {
+                id,
+                system,
+                examples,
+                user,
+                max_tokens,
+            } => {
+                let t0 = Instant::now();
+                let resp = match text.as_mut() {
+                    None => no_model(id),
+                    Some(m) => match m.generate(&system, &examples, &user, max_tokens as usize) {
+                        Ok(text) => Response::Generated {
+                            id,
+                            text,
+                            ms: t0.elapsed().as_millis() as u64,
+                        },
+                        Err(err) => engine_error(id, err),
+                    },
+                };
+                write_msg(output, &resp)?;
+            }
             Request::Load {
                 model,
                 engine: kind,
@@ -208,6 +263,17 @@ fn gpu_memory_mb() -> Option<u64> {
     aural_platform::gpu::process_gpu_memory_mb()
 }
 
+/// Entry point for worker binaries that also host text models.
+pub fn serve_stdio_all(
+    engines: Vec<Engine>,
+    build: impl FnMut(&Path, Engine, Backend, usize) -> Result<Box<dyn Transcriber>>,
+    build_text: impl FnMut(&Path, usize) -> Result<Box<dyn TextModel>>,
+) -> Result<()> {
+    let stdin = std::io::stdin().lock();
+    let mut stdout = std::io::stdout().lock();
+    serve_all(stdin, &mut stdout, engines, build, build_text)
+}
+
 /// Entry point for worker binaries: protocol on stdin/stdout.
 pub fn serve_stdio(
     engines: Vec<Engine>,
@@ -223,7 +289,7 @@ mod tests {
     use super::*;
     use crate::codec::{read_msg, write_msg, write_pcm};
     use crate::msg::{Request, Response};
-    use aural_engines::{Backend, Engine, Transcriber};
+    use aural_engines::{Backend, Engine, TextModel, Transcriber};
     use std::io::Cursor;
 
     struct Counter;
@@ -398,6 +464,93 @@ mod tests {
         );
         assert!(matches!(&out[3], Response::Error { id: Some(4), .. }));
         assert_eq!(out.len(), 4, "cancel itself has no reply");
+    }
+
+    struct Shout;
+    impl TextModel for Shout {
+        fn label(&self) -> String {
+            "shout".into()
+        }
+        fn generate(
+            &mut self,
+            system: &str,
+            examples: &[(String, String)],
+            user: &str,
+            _: usize,
+        ) -> anyhow::Result<String> {
+            Ok(format!(
+                "{}|{}|{}",
+                system.len(),
+                examples.len(),
+                user.to_uppercase()
+            ))
+        }
+    }
+
+    fn run_text(requests: Vec<Request>) -> Vec<Response> {
+        let mut input = Vec::new();
+        for r in requests {
+            write_msg(&mut input, &r).unwrap();
+        }
+        let mut output = Vec::new();
+        serve_all(
+            Cursor::new(input),
+            &mut output,
+            vec![],
+            |_, _, _, _| anyhow::bail!("no speech here"),
+            |_, _| Ok(Box::new(Shout) as Box<dyn TextModel>),
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        let mut c = Cursor::new(output);
+        while let Some(m) = read_msg::<_, Response>(&mut c).unwrap() {
+            out.push(m);
+        }
+        out
+    }
+
+    fn generate(id: u64) -> Request {
+        Request::Generate {
+            id,
+            system: "sys".into(),
+            examples: vec![("q".into(), "a".into())],
+            user: "tidy me".into(),
+            max_tokens: 10,
+        }
+    }
+
+    #[test]
+    fn a_text_model_is_loaded_and_answers_requests() {
+        let out = run_text(vec![
+            generate(1),
+            Request::LoadText {
+                model: "m".into(),
+                threads: 2,
+            },
+            generate(2),
+        ]);
+        assert!(matches!(&out[1], Response::Error { id: Some(1), .. }));
+        assert!(matches!(&out[2], Response::TextLoaded { label, .. } if label == "shout"));
+        assert!(
+            matches!(&out[3], Response::Generated { id: 2, text, .. } if text == "3|1|TIDY ME")
+        );
+    }
+
+    #[test]
+    fn a_speech_only_worker_says_it_has_no_text_models() {
+        let out = run(
+            vec![(
+                Request::LoadText {
+                    model: "m".into(),
+                    threads: 1,
+                },
+                None,
+            )],
+            false,
+        );
+        assert!(
+            matches!(&out[1], Response::Error { id: None, message } if message.contains("no text models"))
+        );
     }
 
     #[test]

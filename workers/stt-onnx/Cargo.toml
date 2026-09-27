@@ -13,6 +13,7 @@ aural-stt-protocol = { path = "../../crates/aural-stt-protocol" }
 [dev-dependencies]
 aural-audio = { path = "../../crates/aural-audio" }
 aural-eval = { path = "../../crates/aural-eval" }
+aural-text = { path = "../../crates/aural-text" }
 
 [lints]
 workspace = true
