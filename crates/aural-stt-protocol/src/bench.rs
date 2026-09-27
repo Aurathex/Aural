@@ -11,6 +11,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+/// A variant is checked for being far too slow after this many clips…
+pub const SLOW_CHECK_CLIPS: usize = 3;
+/// …and measuring stops there if it took this many times longer than the audio.
+pub const TOO_SLOW_RTF: f64 = 1.2;
+
 /// Speed that varies more than this (slowest-typical / typical) feels unreliable.
 pub const MAX_SPREAD: f64 = 4.0;
 
@@ -134,6 +139,7 @@ pub fn benchmark_variant(
     let mut audio_s = 0.0;
     let mut wer = WerStats::default();
     let mut failure: Option<(&'static str, String)> = None;
+    let mut stopped_early = false;
     'passes: for pass in 0..passes {
         for clip in clips {
             if cancel.load(Ordering::SeqCst) {
@@ -152,6 +158,16 @@ pub fn benchmark_variant(
                     audio_s += secs;
                     if pass == 0 {
                         wer = wer + word_errors(&clip.reference, &text);
+                    }
+                    // Clearly slower than speech: more clips won't change the verdict,
+                    // only keep the PC busy for minutes.
+                    if pass == 0
+                        && latencies.len() == SLOW_CHECK_CLIPS
+                        && total_ms as f64 / 1000.0 > TOO_SLOW_RTF * audio_s
+                    {
+                        stopped_early = true;
+                        read_stats(&mut client, &mut r.ram_mb, &mut r.vram_mb);
+                        break 'passes;
                     }
                 }
                 Err(e) => {
@@ -175,7 +191,7 @@ pub fn benchmark_variant(
         ));
     }
 
-    if r.passes > 0 {
+    if r.passes > 0 || stopped_early {
         let m = summarize(&latencies, audio_s, total_ms, wer);
         r.spread = if m.p50_ms > 0 {
             m.p95_ms as f64 / m.p50_ms as f64

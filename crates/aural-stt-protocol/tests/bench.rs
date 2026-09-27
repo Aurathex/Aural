@@ -123,6 +123,29 @@ fn a_model_that_will_not_load_reports_why() {
 }
 
 #[test]
+fn a_clearly_too_slow_variant_stops_after_a_few_clips() {
+    // 1 s clips that take 1.5 s each: slower than speech. Measuring all 3 × 20 would
+    // take minutes at full load and can't change the verdict.
+    let dir = tempfile::tempdir().unwrap();
+    let never = AtomicBool::new(false);
+    let r = benchmark_variant(
+        spec(&["--count", "--slow-ms=1500"], dir.path()),
+        &target(),
+        &clips(20),
+        3,
+        &never,
+    );
+    assert_eq!(
+        calls(dir.path()),
+        aural_stt_protocol::bench::SLOW_CHECK_CLIPS
+    );
+    let m = r.metrics.unwrap();
+    assert!(m.rtf > 1.0, "{}", m.rtf);
+    assert_eq!(r.error, None);
+    assert_eq!(r.stability, Stability::Stable);
+}
+
+#[test]
 fn cancel_stops_between_clips() {
     let dir = tempfile::tempdir().unwrap();
     let cancel = Arc::new(AtomicBool::new(false));
