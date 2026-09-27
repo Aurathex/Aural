@@ -100,3 +100,38 @@ fn worker_runs_moonshine() {
         "{text}"
     );
 }
+
+/// The hardware-test runner on real Parakeet, on the processor and the graphics card,
+/// over the built-in clips. Run with `--release -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn benchmark_parakeet_on_the_builtin_clips() {
+    use aural_stt_protocol::bench::{benchmark_variant, BenchTarget, Stability};
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/eval");
+    let clips = aural_eval::clips::builtin(&dir).unwrap();
+    let never = std::sync::atomic::AtomicBool::new(false);
+    for backend in [Backend::Cpu, Backend::DirectMl] {
+        let r = benchmark_variant(
+            WorkerSpec {
+                exe: PathBuf::from(env!("CARGO_BIN_EXE_aural-stt-onnx")),
+                args: vec![],
+            },
+            &BenchTarget {
+                variant: format!("parakeet@{backend:?}"),
+                model_path: PathBuf::from(std::env::var("AURAL_TEST_PARAKEET_DIR").unwrap()),
+                engine: Engine::Parakeet,
+                backend,
+                threads: 4,
+            },
+            &clips,
+            3,
+            &never,
+        );
+        eprintln!("{r:?}");
+        assert_eq!(r.error, None);
+        assert_eq!(r.stability, Stability::Stable);
+        let m = r.metrics.unwrap();
+        assert!(m.wer < 0.08, "wer {}", m.wer);
+        assert!(r.ram_mb > 100);
+    }
+}

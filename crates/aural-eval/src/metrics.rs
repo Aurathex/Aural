@@ -1,8 +1,9 @@
 //! Speed and accuracy summary for one run over a set of clips.
 
 use crate::wer::WerStats;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunMetrics {
     /// Pooled word error rate (errors over all clips / reference words).
     pub wer: f64,

@@ -2,6 +2,7 @@
 //! its own process so incompatible native runtimes never share a binary, GPU/driver
 //! crashes cannot take the app down, and unloading a model returns all its memory.
 
+pub mod bench;
 pub mod client;
 pub mod codec;
 pub mod msg;

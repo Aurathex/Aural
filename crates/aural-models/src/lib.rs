@@ -7,6 +7,7 @@ pub mod download;
 pub mod recommend;
 pub mod store;
 
+pub use aural_stt_protocol::bench::{Stability, VariantResult};
 pub use catalog::{Catalog, ModelEntry, ModelFile};
 pub use download::{download, download_with, DownloadError, DownloadOptions, Progress};
 pub use recommend::{compatible, recommend, HardwareProfile};

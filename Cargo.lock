@@ -398,6 +398,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "claxon",
+ "serde",
  "tempfile",
 ]
 
@@ -408,6 +409,7 @@ dependencies = [
  "anyhow",
  "aural-engines",
  "aural-platform",
+ "aural-stt-protocol",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -441,6 +443,7 @@ version = "0.1.0"
 dependencies = [
  "aural-audio",
  "aural-engines",
+ "aural-eval",
  "aural-stt-protocol",
 ]
 
@@ -450,6 +453,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aural-engines",
+ "aural-eval",
  "aural-platform",
  "serde",
  "serde_json",

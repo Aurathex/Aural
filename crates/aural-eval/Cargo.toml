@@ -9,6 +9,7 @@ description = "Speech-recognition scoring for Aural: word error rate, latency me
 [dependencies]
 anyhow = "1.0.104"
 claxon = "0.4.3"
+serde = { version = "1", features = ["derive"] }
 
 [lints]
 workspace = true

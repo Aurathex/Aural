@@ -1,6 +1,7 @@
 //! Test double for the worker protocol. Flags: --crash-first (exit on the first
 //! transcribe of a state dir, then behave), --crash-always, --hang-always,
-//! --bad-version, --fail-load, --state=<dir>.
+//! --bad-version, --fail-load, --state=<dir>, --slow-ms=<n> (sleep per transcribe),
+//! --count (append one line per transcribe to <state>/calls).
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -15,6 +16,12 @@ fn main() {
     let crash_always = has("--crash-always");
     let hang = has("--hang-always");
     let fail_load = has("--fail-load");
+    let slow_ms: u64 = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--slow-ms="))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
+    let calls = has("--count").then(|| state.join("calls"));
 
     if has("--bad-version") {
         let mut out = std::io::stdout().lock();
@@ -32,12 +39,23 @@ fn main() {
         crash: bool,
         hang: bool,
         marker: std::path::PathBuf,
+        slow_ms: u64,
+        calls: Option<std::path::PathBuf>,
     }
     impl aural_engines::Transcriber for Fake {
         fn label(&self) -> String {
             "fake".into()
         }
         fn transcribe(&mut self, pcm: &[f32]) -> anyhow::Result<String> {
+            if let Some(calls) = &self.calls {
+                use std::io::Write;
+                let mut f = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(calls)?;
+                writeln!(f, "{}", pcm.len())?;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(self.slow_ms));
             if self.hang {
                 std::thread::sleep(std::time::Duration::from_secs(3600));
             }
@@ -63,6 +81,8 @@ fn main() {
                 crash: crash_first || crash_always,
                 hang,
                 marker: marker.clone(),
+                slow_ms,
+                calls: calls.clone(),
             }) as Box<dyn aural_engines::Transcriber>)
         },
     );
