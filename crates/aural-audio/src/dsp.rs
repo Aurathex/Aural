@@ -55,9 +55,144 @@ pub fn resample_mono(mono: &[f32], rate: u32) -> Result<Vec<f32>> {
         .collect())
 }
 
+/// Resamples a live recording piece by piece to 16 kHz mono. The output is the same
+/// audio `resample_mono` produces for the whole recording, delivered as it arrives
+/// (the resampler's start-up delay is trimmed, the end flushed by `finish`).
+pub struct StreamResampler {
+    inner: Option<Fft<f32>>,
+    pending: Vec<f32>,
+    to_trim: usize,
+    consumed: usize,
+    produced: usize,
+    ratio: f64,
+}
+
+impl StreamResampler {
+    pub fn new(rate: u32) -> Result<Self> {
+        let inner = (rate != TARGET_RATE)
+            .then(|| {
+                Fft::<f32>::new(
+                    rate as usize,
+                    TARGET_RATE as usize,
+                    1024,
+                    1,
+                    FixedSync::Both,
+                )
+            })
+            .transpose()?;
+        let to_trim = inner.as_ref().map_or(0, |r| r.output_delay());
+        Ok(Self {
+            inner,
+            pending: Vec::new(),
+            to_trim,
+            consumed: 0,
+            produced: 0,
+            ratio: TARGET_RATE as f64 / rate as f64,
+        })
+    }
+
+    fn run(&mut self, chunk: &[f32], partial: Option<usize>, out: &mut Vec<f32>) -> Result<()> {
+        let Some(r) = self.inner.as_mut() else {
+            return Ok(());
+        };
+        let input = InterleavedSlice::new(chunk, 1, chunk.len())?;
+        let indexing = partial.map(|n| rubato::Indexing {
+            input_offset: 0,
+            output_offset: 0,
+            partial_len: Some(n),
+            active_channels_mask: None,
+        });
+        let res = r.process(&input, indexing.as_ref())?;
+        let mut samples: Vec<f32> = (0..res.frames())
+            .map(|i| res.read_sample(0, i).unwrap_or(0.0))
+            .collect();
+        let trim = self.to_trim.min(samples.len());
+        samples.drain(..trim);
+        self.to_trim -= trim;
+        self.produced += samples.len();
+        out.extend(samples);
+        Ok(())
+    }
+
+    /// Add native-rate audio; returns whatever 16 kHz audio is ready.
+    pub fn push(&mut self, mono: &[f32]) -> Result<Vec<f32>> {
+        self.consumed += mono.len();
+        let Some(r) = self.inner.as_ref() else {
+            self.produced += mono.len();
+            return Ok(mono.to_vec());
+        };
+        let need = r.input_frames_next();
+        self.pending.extend_from_slice(mono);
+        let mut out = Vec::new();
+        while self.pending.len() >= need {
+            let chunk: Vec<f32> = self.pending.drain(..need).collect();
+            self.run(&chunk, None, &mut out)?;
+        }
+        Ok(out)
+    }
+
+    /// The rest of the audio, up to the recording's full resampled length.
+    pub fn finish(&mut self) -> Result<Vec<f32>> {
+        let mut out = Vec::new();
+        if self.inner.is_none() {
+            return Ok(out);
+        }
+        let expected = (self.ratio * self.consumed as f64).ceil() as usize;
+        let need = self.inner.as_ref().map_or(1, |r| r.input_frames_next());
+        let rest = std::mem::take(&mut self.pending);
+        let mut chunk = rest.clone();
+        chunk.resize(need, 0.0);
+        if !rest.is_empty() {
+            self.run(&chunk, Some(rest.len()), &mut out)?;
+        }
+        let silence = vec![0.0; need];
+        while self.produced < expected {
+            self.run(&silence, Some(0), &mut out)?;
+        }
+        let extra = self.produced - expected;
+        out.truncate(out.len().saturating_sub(extra));
+        self.produced = expected;
+        Ok(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sine(rate: u32, secs: f32) -> Vec<f32> {
+        (0..(rate as f32 * secs) as usize)
+            .map(|n| ((n as f32 / rate as f32) * 440.0 * std::f32::consts::TAU).sin() * 0.5)
+            .collect()
+    }
+
+    #[test]
+    fn streaming_resample_matches_whole_recording_resample() {
+        for rate in [48_000u32, 44_100, 16_000] {
+            let mono = sine(rate, 2.3);
+            let whole = resample_mono(&mono, rate).unwrap();
+            let mut s = StreamResampler::new(rate).unwrap();
+            let mut live = Vec::new();
+            // Irregular pieces, like a microphone callback.
+            let mut i = 0;
+            for (k, n) in [441usize, 3000, 17, 960, 4800].iter().cycle().enumerate() {
+                if i >= mono.len() || k > 10_000 {
+                    break;
+                }
+                let end = (i + n).min(mono.len());
+                live.extend(s.push(&mono[i..end]).unwrap());
+                i = end;
+            }
+            live.extend(s.finish().unwrap());
+            assert_eq!(live.len(), whole.len(), "{rate}");
+            let worst = live
+                .iter()
+                .zip(&whole)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            assert!(worst < 1e-3, "{rate}: worst difference {worst}");
+        }
+    }
 
     fn write_sine(path: &std::path::Path, rate: u32, channels: u16, secs: f32) {
         let spec = hound::WavSpec {

@@ -2,7 +2,7 @@
 //! closes when it stops, so the Windows microphone indicator is only on while the user
 //! is actually dictating.
 
-use crate::dsp::resample_mono;
+use crate::dsp::{resample_mono, StreamResampler};
 use crate::levels::{LevelAnalyzer, BANDS, WINDOW};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::Serialize;
@@ -22,6 +22,8 @@ pub struct LevelFrame {
 }
 
 pub type LevelCallback = Box<dyn Fn(LevelFrame) + Send>;
+/// Receives the recording as 16 kHz mono while it happens (live text).
+pub type AudioCallback = Box<dyn FnMut(&[f32]) + Send>;
 
 #[derive(Debug)]
 pub enum CaptureError {
@@ -108,6 +110,17 @@ pub fn start(
     device: Option<&str>,
     on_levels: LevelCallback,
 ) -> Result<CaptureHandle, CaptureError> {
+    start_live(device, on_levels, None)
+}
+
+/// Like `start`, and also hands every new piece of audio to `on_audio` as 16 kHz mono,
+/// ending with a final call (possibly empty) before `stop` returns. The pieces add up to exactly the
+/// audio `stop` returns.
+pub fn start_live(
+    device: Option<&str>,
+    on_levels: LevelCallback,
+    mut on_audio: Option<AudioCallback>,
+) -> Result<CaptureHandle, CaptureError> {
     let device = device.map(str::to_owned);
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), CaptureError>>();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
@@ -173,6 +186,12 @@ pub fn start(
             };
             let mut analyzer = LevelAnalyzer::new(rate);
             let mut window = vec![0.0f32; WINDOW];
+            let mut live = match on_audio.as_ref() {
+                Some(_) => StreamResampler::new(rate).ok(),
+                None => None,
+            };
+            let mut cursor = 0usize;
+            let mut fresh = Vec::new();
             while let Err(mpsc::RecvTimeoutError::Timeout) =
                 stop_rx.recv_timeout(Duration::from_millis(33))
             {
@@ -180,6 +199,16 @@ pub fn start(
                     let tail = &b[b.len().saturating_sub(WINDOW)..];
                     window.clear();
                     window.extend_from_slice(tail);
+                    fresh.clear();
+                    fresh.extend_from_slice(&b[cursor..]);
+                    cursor = b.len();
+                }
+                if let (Some(r), Some(cb)) = (live.as_mut(), on_audio.as_mut()) {
+                    if let Ok(pcm) = r.push(&fresh) {
+                        if !pcm.is_empty() {
+                            cb(&pcm);
+                        }
+                    }
                 }
                 on_levels(LevelFrame {
                     bands: analyzer.analyze(&window),
@@ -187,6 +216,13 @@ pub fn start(
             }
             drop(stream);
             let native = std::mem::take(&mut *buf.lock().unwrap_or_else(|p| p.into_inner()));
+            if let (Some(r), Some(cb)) = (live.as_mut(), on_audio.as_mut()) {
+                let mut last = r
+                    .push(&native[cursor.min(native.len())..])
+                    .unwrap_or_default();
+                last.extend(r.finish().unwrap_or_default());
+                cb(&last);
+            }
             resample_mono(&native, rate).unwrap_or_default()
         })
         .map_err(|e| CaptureError::Unavailable(e.to_string()))?;
