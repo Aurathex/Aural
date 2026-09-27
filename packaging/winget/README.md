@@ -15,7 +15,7 @@ are generated from that file rather than kept in this repository:
 ```powershell
 ./packaging/winget/New-WingetManifests.ps1 -Version 0.1.0 `
   -Installer target/release/bundle/nsis/Aural_0.1.0_x64-setup.exe `
-  -Repository Djdhmf/Aural -License PolyForm-Strict-1.0.0 -OutDir winget-out
+  -Repository Aurathex/Aural -License PolyForm-Strict-1.0.0 -OutDir winget-out
 winget validate --manifest winget-out/manifests/a/Aurathex/Aural/0.1.0
 ```
 
