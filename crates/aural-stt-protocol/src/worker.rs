@@ -79,10 +79,44 @@ pub fn serve<R: Read, W: Write>(
                 };
                 write_msg(output, &resp)?;
             }
+            Request::Stats => {
+                let (working_set_mb, peak_working_set_mb) = process_memory_mb();
+                write_msg(
+                    output,
+                    &Response::Stats {
+                        working_set_mb,
+                        peak_working_set_mb,
+                        gpu_memory_mb: gpu_memory_mb(),
+                    },
+                )?;
+            }
             Request::Shutdown => return Ok(()),
         }
     }
     Ok(())
+}
+
+/// Current and peak working set of this process, in MB.
+#[cfg(windows)]
+fn process_memory_mb() -> (u64, u64) {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let mut c: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
+    c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    // SAFETY: the pseudo-handle for this process and a correctly sized struct.
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) } != 0;
+    if !ok {
+        return (0, 0);
+    }
+    let mb = |b: usize| (b / (1024 * 1024)) as u64;
+    (mb(c.WorkingSetSize), mb(c.PeakWorkingSetSize))
+}
+
+#[cfg(windows)]
+fn gpu_memory_mb() -> Option<u64> {
+    aural_platform::gpu::process_gpu_memory_mb()
 }
 
 /// Entry point for worker binaries: protocol on stdin/stdout.

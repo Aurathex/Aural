@@ -103,6 +103,21 @@ mod tests {
     }
 
     #[test]
+    fn stats_messages_roundtrip() {
+        roundtrip(Request::Stats);
+        roundtrip(Response::Stats {
+            working_set_mb: 812,
+            peak_working_set_mb: 900,
+            gpu_memory_mb: Some(1076),
+        });
+        roundtrip(Response::Stats {
+            working_set_mb: 1,
+            peak_working_set_mb: 1,
+            gpu_memory_mb: None,
+        });
+    }
+
+    #[test]
     fn codec_roundtrip_all_messages() {
         roundtrip(Request::Load {
             model: "C:/m".into(),

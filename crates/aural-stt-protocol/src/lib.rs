@@ -8,4 +8,5 @@ pub mod msg;
 pub mod worker;
 
 /// Bumped on any incompatible change to `msg`.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// 2: adds `Stats`.
+pub const PROTOCOL_VERSION: u32 = 2;

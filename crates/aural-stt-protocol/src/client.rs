@@ -14,6 +14,14 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// Memory a worker process uses (hardware test).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkerStats {
+    pub working_set_mb: u64,
+    pub peak_working_set_mb: u64,
+    pub gpu_memory_mb: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkerSpec {
     pub exe: PathBuf,
@@ -333,6 +341,30 @@ impl SttClient {
                     message,
                 } if got == id => return Err(ClientError::Engine(message)),
                 _ => continue,
+            }
+        }
+    }
+
+    /// How much memory the worker uses. Only a measurement, so a failure is reported,
+    /// never retried with a new worker.
+    pub fn stats(&mut self, timeout: Duration) -> Result<WorkerStats, ClientError> {
+        if self.is_stopped() {
+            return Err(ClientError::Stopped);
+        }
+        let proc = self.proc.as_mut().ok_or(ClientError::NotLoaded)?;
+        proc.send(&Request::Stats, None)?;
+        loop {
+            if let Response::Stats {
+                working_set_mb,
+                peak_working_set_mb,
+                gpu_memory_mb,
+            } = proc.recv(timeout)?
+            {
+                return Ok(WorkerStats {
+                    working_set_mb,
+                    peak_working_set_mb,
+                    gpu_memory_mb,
+                });
             }
         }
     }

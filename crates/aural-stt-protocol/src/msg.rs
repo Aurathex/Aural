@@ -18,6 +18,8 @@ pub enum Request {
         id: u64,
         samples: u32,
     },
+    /// How much memory the worker uses (for the hardware test).
+    Stats,
     Shutdown,
 }
 
@@ -42,5 +44,11 @@ pub enum Response {
     Error {
         id: Option<u64>,
         message: String,
+    },
+    Stats {
+        working_set_mb: u64,
+        peak_working_set_mb: u64,
+        /// Graphics-card memory in use by the worker; None if Windows can't tell.
+        gpu_memory_mb: Option<u64>,
     },
 }

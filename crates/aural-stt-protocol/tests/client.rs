@@ -146,3 +146,23 @@ fn missing_worker_executable_is_reported() {
     .unwrap();
     assert!(matches!(err, ClientError::Spawn(_)), "{err}");
 }
+
+#[test]
+fn stats_report_worker_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = loaded(&[], dir.path());
+    let s = c.stats(Duration::from_secs(5)).unwrap();
+    assert!(s.working_set_mb > 0, "{s:?}");
+    assert!(s.peak_working_set_mb >= s.working_set_mb, "{s:?}");
+}
+
+#[test]
+fn a_stopped_client_refuses_stats_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = loaded(&[], dir.path());
+    c.killer().kill();
+    assert!(matches!(
+        c.stats(Duration::from_secs(5)),
+        Err(ClientError::Stopped)
+    ));
+}
