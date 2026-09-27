@@ -6,7 +6,7 @@
   import Microphone from "./Microphone.svelte";
   import Models from "./Models.svelte";
   import About from "./About.svelte";
-  import type { AppState, ProgressEvent, Settings } from "../lib/types";
+  import type { AppState, HwTestStatus, ProgressEvent, Settings } from "../lib/types";
 
   type Page = "general" | "microphone" | "models" | "about";
   const pages: { id: Page; label: string }[] = [
@@ -34,7 +34,12 @@
     app = s;
     if (firstRun) {
       firstRun = false;
-      if (!s.models.some((m) => m.state.kind === "active" || m.state.kind === "installed")) page = "models";
+      // First start: the Models page, where the hardware test offers itself.
+      const noModel = !s.models.some((m) => m.state.kind === "active" || m.state.kind === "installed");
+      if (noModel || !s.hardware_test.tested) page = "models";
+      // Design preview only: ?page=models opens a page directly for screenshots.
+      const asked = inApp ? null : new URLSearchParams(location.search).get("page");
+      if (asked && pages.some((p) => p.id === asked)) page = asked as Page;
     }
   }
 
@@ -63,6 +68,9 @@
     const offs = [
       on<AppState>("state-changed", receive),
       on<ProgressEvent>("model-progress", applyProgress),
+      on<HwTestStatus>("hwtest-progress", (s) => {
+        if (app) app.hardware_test = s;
+      }),
       on<null>("deleted", () => (deleted = true)),
     ];
     const onFocus = () => void refresh();
@@ -76,8 +84,8 @@
   function status(a: AppState): string {
     switch (a.engine.state) {
       case "ready": return `Ready — hold ${a.hotkey_display}`;
-      case "loading": return "Loading model…";
-      case "error": return "Model failed to start";
+      case "loading": return "Getting the model ready…";
+      case "error": return "The model couldn't start";
       default: return "Download a model to begin";
     }
   }

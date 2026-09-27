@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["--yes", "serve", "design", "-l", "4177", "--no-clipboard"],
       "port": 4177
+    },
+    {
+      "name": "ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "app", "run", "dev", "--", "--port", "4178", "--strictPort"],
+      "port": 4178
     }
   ]
 }

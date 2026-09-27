@@ -2,7 +2,7 @@
 //! catalog entry and every file is present at the expected size; the receipt is
 //! written last on install and deleted first on removal.
 
-use crate::catalog::{split_variant_id, Backend, Catalog, ModelEntry, ModelFile};
+use crate::catalog::{split_variant_id, Backend, Catalog, ModelEntry, ModelFile, Runtime};
 use crate::recommend::{compatible, recommend, HardwareProfile};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -122,6 +122,10 @@ pub struct ModelStatus {
     pub recommended: bool,
     pub license_id: String,
     pub attribution: String,
+    /// Variant ids ("<model>@<backend>"), in catalog order.
+    pub variants: Vec<String>,
+    pub runtime: Runtime,
+    pub precision: String,
 }
 
 /// The variant to use (`<model>@<backend>`): the chosen one if its model is installed
@@ -202,6 +206,9 @@ pub fn statuses(
                 recommended: recommended == Some(m.id.as_str()),
                 license_id: m.license.id.clone(),
                 attribution: m.license.attribution.clone(),
+                variants: m.variants.iter().map(|v| m.variant_id(v.backend)).collect(),
+                runtime: m.runtime,
+                precision: m.precision.clone(),
             }
         })
         .collect()
@@ -420,6 +427,26 @@ mod tests {
         );
         assert!(get("parakeet-tdt-0.6b-v2-int8").recommended);
         assert!(!get("whisper-base.en-q8").recommended);
+    }
+
+    #[test]
+    fn statuses_list_variants_and_technical_facts() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = Catalog::builtin();
+        let st = statuses(&c, &store, None, &HashMap::new(), &HW);
+        let pk = st
+            .iter()
+            .find(|s| s.id == "parakeet-tdt-0.6b-v2-int8")
+            .unwrap();
+        assert_eq!(
+            pk.variants,
+            [
+                "parakeet-tdt-0.6b-v2-int8@cpu",
+                "parakeet-tdt-0.6b-v2-int8@directml"
+            ]
+        );
+        assert_eq!((pk.runtime, pk.precision.as_str()), (Runtime::Onnx, "int8"));
     }
 
     #[test]
