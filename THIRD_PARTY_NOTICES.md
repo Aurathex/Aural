@@ -14,6 +14,9 @@ own license (LICENSE.md) does not change their terms.
 - **ONNX Runtime 1.24.2** — © Microsoft Corporation, MIT License (text below);
   statically linked into `aural-stt-onnx.exe`. ONNX Runtime's own third-party notices
   are installed next to Aural as `licenses\onnxruntime-ThirdPartyNotices.txt`.
+- **transcribe-rs 0.3.11** — MIT License (listed with the Rust crates below); compiled into
+  `aural-stt-onnx.exe` with a small Aural change (choosing the DirectML graphics device),
+  described in `third_party/transcribe-rs/AURAL-PATCH.md` in the source.
 - **whisper.cpp / ggml** — © The ggml authors, MIT License (text below); compiled into
   `aural-stt-ggml.exe`.
 - **LibriSpeech test-clean** (20 short recordings in `eval\`, used by the Hardware Test to
