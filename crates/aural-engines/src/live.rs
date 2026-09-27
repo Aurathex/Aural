@@ -78,8 +78,19 @@ fn words(s: &str) -> Vec<String> {
     s.split_whitespace().map(str::to_owned).collect()
 }
 
+/// Leading words two reads share. A changed comma or capital is the same word: only a
+/// different word makes a word tentative again.
 fn agreed_prefix(a: &[String], b: &[String]) -> usize {
-    a.iter().zip(b).take_while(|(x, y)| x == y).count()
+    let key = |w: &String| {
+        w.chars()
+            .filter(|c| c.is_alphanumeric() || *c == '\'')
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    a.iter()
+        .zip(b)
+        .take_while(|(x, y)| key(x) == key(y))
+        .count()
 }
 
 pub struct LiveSession {
@@ -295,6 +306,16 @@ mod tests {
         // Keep talking: earlier words are confirmed by the later reads.
         let t = feed(&mut s, &mut e, &talk(1_500));
         assert!(t.stable.starts_with("w0"), "{t:?}");
+    }
+
+    #[test]
+    fn punctuation_or_capital_changes_do_not_unsettle_words() {
+        let mut e = Words::default();
+        let mut s = LiveSession::begin(&mut e).unwrap();
+        s.read("stew for dinner, turnips");
+        s.read("Stew for dinner turnips and");
+        assert_eq!(s.text().stable, "Stew for dinner turnips");
+        assert_eq!(s.text().tentative, "and");
     }
 
     #[test]

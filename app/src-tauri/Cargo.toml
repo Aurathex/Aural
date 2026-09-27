@@ -39,6 +39,7 @@ windows = { version = "0.62.2", features = [
 ] }
 
 [dev-dependencies]
+cpal = "0.18.2"
 tempfile = "3.27.0"
 
 [lints]
