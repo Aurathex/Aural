@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accuracyText,
   hasJargon,
+  liveText,
   hardwareText,
   JARGON,
   labelText,
@@ -184,5 +185,18 @@ describe("plain-language copy", () => {
     // …but it does catch jargon in visible text.
     expect(userFacingText("<p>Uses Vulkan</p>").some(hasJargon)).toBe(true);
     expect(userFacingText(`<script>const m = "fp16 model";</script>`).some(hasJargon)).toBe(true);
+  });
+});
+
+describe("live text wording", () => {
+  it("explains every live-text state in plain words", async () => {
+    const states = ["off", "no_model", "native", "phrases", "too_slow"] as const;
+    for (const s of states) {
+      const t = liveText(s);
+      expect(t.length, s).toBeGreaterThan(10);
+      expect(hasJargon(t), t).toBe(false);
+    }
+    expect(liveText("phrases")).toMatch(/pause/);
+    expect(liveText("too_slow")).toMatch(/slow/);
   });
 });

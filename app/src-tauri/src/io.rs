@@ -2,13 +2,15 @@
 //! clipboard, the pill window and timers.
 
 use crate::dictation::{DictationIo, Input, PillView};
+use crate::live::{LiveEngine, LiveFeed, LiveStatus};
 use crate::state::{lock, App, Control};
-use aural_audio::capture::{self, CaptureError, CaptureHandle};
+use aural_audio::capture::{self, AudioCallback, CaptureError, CaptureHandle};
 use aural_core::error::ErrorCode;
 use aural_core::session::PillState;
 use aural_platform::consent::{mic_consent, MicConsent};
 use aural_platform::insert::{self, InsertOutcome, Reason};
 use std::sync::atomic::Ordering;
+use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
@@ -20,6 +22,28 @@ pub struct AppIo {
     last_pill: PillState,
     /// The start sound played for the current recording, so it gets muted out.
     start_cue_played: bool,
+    /// Live text for the current recording, when it runs.
+    live: Option<LiveFeed>,
+    /// This session's pill has a live-text caption (until the pill hides).
+    caption: bool,
+}
+
+/// The speech engine as the live-text feeder sees it.
+struct AppEngine(Arc<App>);
+
+impl LiveEngine for AppEngine {
+    fn begin(&self) -> Result<aural_engines::live::LiveMode, ErrorCode> {
+        self.0.engine.live_begin()
+    }
+    fn push(&self, pcm: &[f32]) -> Result<aural_engines::live::LiveText, ErrorCode> {
+        self.0.engine.live_push(pcm)
+    }
+    fn end(&self, pcm: &[f32], seconds: u64) -> Result<String, ErrorCode> {
+        self.0.engine.live_end(pcm, seconds)
+    }
+    fn cancel(&self) {
+        self.0.engine.live_cancel()
+    }
 }
 
 impl AppIo {
@@ -29,17 +53,57 @@ impl AppIo {
             capture: None,
             last_pill: PillState::Hidden,
             start_cue_played: false,
+            live: None,
+            caption: false,
         }
     }
 
-    fn open(&self, device: Option<&str>) -> Result<CaptureHandle, CaptureError> {
+    fn open(
+        &self,
+        device: Option<&str>,
+        live: Option<Sender<Vec<f32>>>,
+    ) -> Result<CaptureHandle, CaptureError> {
         let handle = self.app.handle.clone();
-        capture::start(
+        // The start cue is muted out of the live audio exactly as out of the recording.
+        let mut mute = if self.app.settings().ui.sounds {
+            crate::sounds::START_CUE_MUTE_SAMPLES
+        } else {
+            0
+        };
+        let on_audio = live.map(|tx| -> AudioCallback {
+            Box::new(move |pcm: &[f32]| {
+                let mut piece = pcm.to_vec();
+                crate::sounds::mute_start_cue_piece(&mut piece, &mut mute);
+                let _ = tx.send(piece);
+            })
+        });
+        capture::start_live(
             device,
             Box::new(move |frame| {
                 let _ = handle.emit_to("pill", "levels", frame.bands);
             }),
+            on_audio,
         )
+    }
+
+    /// Start live text for a new recording when it's on and the model keeps up.
+    fn start_live(&mut self) -> Option<Sender<Vec<f32>>> {
+        if !matches!(
+            crate::live::for_app(&self.app),
+            LiveStatus::Native | LiveStatus::Phrases
+        ) {
+            return None;
+        }
+        let (tx, rx) = mpsc::channel();
+        let handle = self.app.handle.clone();
+        self.live = Some(LiveFeed::start(
+            Arc::new(AppEngine(self.app.clone())),
+            rx,
+            move |text| {
+                let _ = handle.emit_to("pill", "live", text);
+            },
+        ));
+        Some(tx)
     }
 }
 
@@ -60,14 +124,26 @@ impl DictationIo for AppIo {
             return Err(ErrorCode::MicBlocked);
         }
         let device = self.app.settings().audio.device;
+        let live = self.start_live();
+        self.caption = live.is_some();
         // A chosen microphone that was unplugged falls back to the Windows default.
-        let handle = match self.open(device.as_deref()) {
-            Err(CaptureError::DeviceNotFound(_)) => self.open(None),
+        let opened = match self.open(device.as_deref(), live.clone()) {
+            Err(CaptureError::DeviceNotFound(_)) => self.open(None, live.clone()),
             other => other,
+        };
+        // The capture callback now holds the only sender: the live stream ends when
+        // the recording does.
+        drop(live);
+        match opened {
+            Ok(handle) => {
+                self.capture = Some(handle);
+                Ok(())
+            }
+            Err(e) => {
+                self.live_cancel();
+                Err(capture_error(e))
+            }
         }
-        .map_err(capture_error)?;
-        self.capture = Some(handle);
-        Ok(())
     }
 
     fn stop_capture(&mut self) -> Vec<f32> {
@@ -107,7 +183,7 @@ impl DictationIo for AppIo {
         }
     }
 
-    fn pill(&mut self, view: PillView) {
+    fn pill(&mut self, mut view: PillView) {
         let Some(window) = self.app.handle.get_webview_window("pill") else {
             return;
         };
@@ -121,9 +197,14 @@ impl DictationIo for AppIo {
         }
         self.last_pill = view.state;
         let hidden = view.state == PillState::Hidden;
+        let position = self.app.settings().ui.pill_position;
+        view.caption = self.caption.then_some(position);
+        if hidden {
+            self.caption = false;
+        }
         self.app.pill_hidden.store(hidden, Ordering::SeqCst);
         if !hidden {
-            crate::pill::show(&window, self.app.settings().ui.pill_position);
+            crate::pill::show(&window, position, view.caption.is_some());
         }
         let _ = self.app.handle.emit_to("pill", "pill", &view);
         if hidden {
@@ -138,6 +219,16 @@ impl DictationIo for AppIo {
                     }
                 }
             });
+        }
+    }
+
+    fn live_finish(&mut self) -> Option<Result<String, ErrorCode>> {
+        self.live.take().and_then(LiveFeed::finish)
+    }
+
+    fn live_cancel(&mut self) {
+        if let Some(feed) = self.live.take() {
+            feed.cancel();
         }
     }
 

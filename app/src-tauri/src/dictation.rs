@@ -37,6 +37,8 @@ pub enum Input {
 pub struct PillView {
     pub state: PillState,
     pub label: Option<String>,
+    /// Where the pill is, when it has a live-text caption this session.
+    pub caption: Option<aural_core::settings::PillPosition>,
 }
 
 /// Everything the dictation loop needs from the outside world.
@@ -53,6 +55,11 @@ pub trait DictationIo {
     fn remember(&mut self, text: &str);
     fn pill(&mut self, view: PillView);
     fn schedule(&mut self, after_ms: u64, input: Input);
+    /// End the live-text stream started with the recording (after `stop_capture`):
+    /// its final text, or None when there was no live stream.
+    fn live_finish(&mut self) -> Option<Result<String, ErrorCode>>;
+    /// Drop the live-text stream, if any, without using it.
+    fn live_cancel(&mut self);
 }
 
 pub struct Dictation<I: DictationIo> {
@@ -133,15 +140,24 @@ impl<I: DictationIo> Dictation<I> {
             }
             Effect::StopCaptureDiscard => {
                 self.io.stop_capture();
+                self.io.live_cancel();
             }
             Effect::StopCaptureAndTranscribe => {
                 self.release_hwnd = self.io.foreground();
                 let pcm = self.io.stop_capture();
                 let speech = aural_audio::gate::trim_silence(&pcm, RATE);
                 let event = if speech.is_empty() {
+                    self.io.live_cancel();
                     Event::TranscriptEmpty
                 } else {
-                    match self.io.transcribe(speech) {
+                    // Live text already read the recording; its final text is used
+                    // unless the stream failed or heard nothing, in which case the
+                    // whole recording is read the ordinary way.
+                    let live = match self.io.live_finish() {
+                        Some(Ok(text)) if !text.trim().is_empty() => Some(text),
+                        _ => None,
+                    };
+                    match live.map_or_else(|| self.io.transcribe(speech), Ok) {
                         Ok(text) if text.trim().is_empty() => Event::TranscriptEmpty,
                         Ok(text) => Event::Transcript(text),
                         Err(code) => Event::Failed(code),
@@ -165,7 +181,11 @@ impl<I: DictationIo> Dictation<I> {
                     PillState::Error(code) => Some(code.label().to_owned()),
                     _ => None,
                 };
-                self.io.pill(PillView { state, label });
+                self.io.pill(PillView {
+                    state,
+                    label,
+                    caption: None,
+                });
                 let settle = match state {
                     PillState::Success => Some(SUCCESS_MS),
                     PillState::Error(_) => Some(ERROR_MS),
@@ -204,6 +224,8 @@ mod tests {
         scheduled: Vec<(u64, Input)>,
         copied: Vec<String>,
         last: Option<String>,
+        /// What the live stream ends with (None: no live stream this time).
+        live: Option<Result<String, ErrorCode>>,
     }
 
     impl DictationIo for Fake {
@@ -244,6 +266,17 @@ mod tests {
         }
         fn schedule(&mut self, after_ms: u64, input: Input) {
             self.scheduled.push((after_ms, input));
+        }
+        fn live_finish(&mut self) -> Option<Result<String, ErrorCode>> {
+            if self.live.is_some() {
+                self.log.push("live finish".into());
+            }
+            self.live.take()
+        }
+        fn live_cancel(&mut self) {
+            if self.live.take().is_some() {
+                self.log.push("live cancel".into());
+            }
         }
     }
 
@@ -454,6 +487,77 @@ mod tests {
         assert_eq!(delay, MAX_RECORDING_MS);
         d.handle(input);
         assert!(d.io.log.iter().any(|l| l.contains("long")));
+    }
+
+    fn inserts(f: &Fake) -> Vec<&String> {
+        f.log.iter().filter(|l| l.starts_with("insert")).collect()
+    }
+
+    #[test]
+    fn live_final_text_is_inserted_once_without_reading_the_recording_again() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.live = Some(Ok("Live words.".into()));
+        d.io.transcript = Some(Ok("whole recording".into()));
+        hold(&mut d, 1200);
+        assert_eq!(inserts(&d.io), vec!["insert \"Live words.\" into 77"]);
+        assert!(!d.io.log.iter().any(|l| l.starts_with("transcribe")));
+        assert_eq!(states(&d.io).last(), Some(&PillState::Success));
+    }
+
+    #[test]
+    fn a_failed_live_stream_falls_back_to_the_whole_recording() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.live = Some(Err(ErrorCode::EngineFailed));
+        d.io.transcript = Some(Ok("whole recording".into()));
+        hold(&mut d, 1200);
+        assert!(d.io.log.contains(&"transcribe 16000".to_string()));
+        assert_eq!(inserts(&d.io), vec!["insert \"whole recording\" into 77"]);
+    }
+
+    #[test]
+    fn an_empty_live_result_for_real_speech_is_checked_against_the_whole_recording() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.live = Some(Ok("  ".into()));
+        d.io.transcript = Some(Ok("said something".into()));
+        hold(&mut d, 1200);
+        assert_eq!(inserts(&d.io), vec!["insert \"said something\" into 77"]);
+    }
+
+    #[test]
+    fn cancelling_or_a_tap_closes_the_live_stream_and_inserts_nothing() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.live = Some(Ok("never".into()));
+        d.handle(Input::Hotkey {
+            event: HotkeyEvent::Down,
+            t_ms: 0,
+        });
+        d.handle(Input::Hotkey {
+            event: HotkeyEvent::Cancel,
+            t_ms: 900,
+        });
+        assert!(d.io.log.contains(&"live cancel".to_string()));
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.live = Some(Ok("never".into()));
+        hold(&mut d, 100);
+        assert!(d.io.log.contains(&"live cancel".to_string()));
+        assert!(inserts(&d.io).is_empty());
+    }
+
+    #[test]
+    fn silence_closes_the_live_stream_without_reaching_the_engine() {
+        let mut d = Dictation::new(
+            Fake {
+                engine_ready: true,
+                pcm: vec![0.0; 16_000],
+                live: Some(Ok("ghost".into())),
+                ..Default::default()
+            },
+            HotkeyMode::PushToTalk,
+        );
+        hold(&mut d, 1200);
+        assert!(d.io.log.contains(&"live cancel".to_string()));
+        assert!(!d.io.log.iter().any(|l| l.starts_with("transcribe")));
+        assert!(inserts(&d.io).is_empty());
     }
 
     #[test]

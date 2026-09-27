@@ -26,6 +26,17 @@ pub fn mute_start_cue(pcm: &mut [f32]) {
     pcm[..n].fill(0.0);
 }
 
+/// The same muting for a recording that arrives in pieces (live text): silences the
+/// next `remaining` samples and counts them down.
+pub fn mute_start_cue_piece(pcm: &mut [f32], remaining: &mut usize) {
+    let n = (*remaining).min(pcm.len());
+    pcm[..n].fill(0.0);
+    *remaining -= n;
+}
+
+/// Samples `mute_start_cue` silences.
+pub const START_CUE_MUTE_SAMPLES: usize = 16_000 * START_CUE_MUTE_MS as usize / 1000;
+
 /// Which sound, if any, goes with a pill change: start on entering Listening, stop on
 /// leaving it (including a cancel or a too-short tap).
 pub fn cue_for(prev: &PillState, next: &PillState) -> Option<Cue> {
@@ -120,6 +131,22 @@ pub fn play(cue: Cue) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_pieces_are_muted_exactly_like_the_whole_recording() {
+        let whole_len = 16_000;
+        let mut whole = vec![0.5f32; whole_len];
+        mute_start_cue(&mut whole);
+        let mut remaining = START_CUE_MUTE_SAMPLES;
+        let mut pieces = Vec::new();
+        for n in [1_000usize, 1_500, 700, 12_800] {
+            let mut p = vec![0.5f32; n];
+            mute_start_cue_piece(&mut p, &mut remaining);
+            pieces.extend(p);
+        }
+        assert_eq!(pieces, whole);
+        assert_eq!(remaining, 0);
+    }
 
     fn samples(wav: &[u8]) -> Vec<f32> {
         wav[44..]

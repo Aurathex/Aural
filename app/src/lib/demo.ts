@@ -33,6 +33,7 @@ const settings: Settings = {
   stt: { active_model: null, active_variant: null },
   startup: { launch_at_login: false },
   ui: { pill_position: "bottom", sounds: true },
+  live: { enabled: true },
 };
 
 function model(
@@ -206,6 +207,7 @@ const state: AppState = {
   results: fresh ? [] : results,
   labels: fresh ? {} : labels,
   hardware_test: { running: false, step: null, done: 0, total: 0, tested: !fresh, stale: false, test_models_installed: !fresh },
+  live: "phrases",
 };
 
 let levelTimer: number | undefined;

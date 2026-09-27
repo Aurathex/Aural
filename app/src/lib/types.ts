@@ -10,6 +10,16 @@ export interface Settings {
   stt: { active_model: string | null; active_variant: string | null };
   startup: { launch_at_login: boolean };
   ui: { pill_position: PillPosition; sounds: boolean };
+  live: { enabled: boolean };
+}
+
+/** Whether words show while you speak, for the model in use (app/src-tauri/src/live.rs). */
+export type LiveStatus = "off" | "no_model" | "native" | "phrases" | "too_slow";
+
+/** Live text shown above the pill while you speak. */
+export interface LiveText {
+  stable: string;
+  tentative: string;
 }
 
 export type ModelState =
@@ -64,6 +74,7 @@ export interface AppState {
   results: VariantResult[];
   labels: Record<string, Label[]>;
   hardware_test: HwTestStatus;
+  live: LiveStatus;
 }
 
 export type Verdict =
@@ -86,6 +97,8 @@ export type PillState =
 export interface PillView {
   state: PillState;
   label: string | null;
+  /** Where the pill is, when it shows a live-text caption this time. */
+  caption?: PillPosition | null;
 }
 
 export interface ProgressEvent {

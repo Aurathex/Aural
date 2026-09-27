@@ -197,3 +197,19 @@ export function recheckChoices(s: HwTestStatus): { label: string; allowDownload:
     { label: "Check again without downloading", allowDownload: false },
   ];
 }
+
+/** What "Show words while I speak" does with the model in use. */
+export function liveText(status: import("./types").LiveStatus): string {
+  switch (status) {
+    case "off":
+      return "Turned off. The pill shows only that it's listening.";
+    case "no_model":
+      return "Your words appear above the pill as you speak, once a model is ready.";
+    case "native":
+      return "Your words appear above the pill as you speak. Grey words may still change; the final text is typed when you finish.";
+    case "phrases":
+      return "Your words appear above the pill as you speak, and settle at each short pause. Grey words may still change; the final text is typed when you finish.";
+    case "too_slow":
+      return "The model you use is too slow on this PC to show words while you speak. Choose a faster model on the Models page to use this.";
+  }
+}

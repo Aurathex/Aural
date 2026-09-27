@@ -63,6 +63,8 @@ pub struct AppStateDto {
     pub results: Vec<VariantResult>,
     pub labels: BTreeMap<String, Vec<Label>>,
     pub hardware_test: HwTestStatus,
+    /// Whether words show while you speak with the model in use.
+    pub live: crate::live::LiveStatus,
 }
 
 pub fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -129,6 +131,7 @@ impl App {
             results: eval.results,
             labels: eval.labels,
             hardware_test: crate::hwtest::status(self),
+            live: crate::live::for_app(self),
             settings: s,
         }
     }

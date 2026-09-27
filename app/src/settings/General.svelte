@@ -2,6 +2,7 @@
   import { onDestroy } from "svelte";
   import { call, on } from "../lib/api";
   import { ChordRecorder } from "../lib/keys";
+  import { liveText } from "../lib/copy";
   import type { AppState, HotkeyCheck, Settings } from "../lib/types";
 
   let { app, save }: { app: AppState; save: (s: Settings) => Promise<void> } = $props();
@@ -72,6 +73,8 @@
     save({ ...app.settings, startup: { launch_at_login: !app.settings.startup.launch_at_login } });
   const setPosition = (pill_position: Settings["ui"]["pill_position"]) =>
     save({ ...app.settings, ui: { ...app.settings.ui, pill_position } });
+  const setLive = () =>
+    save({ ...app.settings, live: { enabled: !app.settings.live.enabled } });
   const setSounds = () =>
     save({ ...app.settings, ui: { ...app.settings.ui, sounds: !app.settings.ui.sounds } });
 
@@ -129,6 +132,21 @@
         <div class="control seg" role="group" aria-label="Hotkey mode">
           <button aria-pressed={app.settings.hotkey.mode === "push_to_talk"} onclick={() => setMode("push_to_talk")}>Hold</button>
           <button aria-pressed={app.settings.hotkey.mode === "toggle"} onclick={() => setMode("toggle")}>Toggle</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="text">
+          <div class="title">Show words while I speak</div>
+          <div class="desc">{liveText(app.live)}</div>
+        </div>
+        <div class="control">
+          <button
+            class="switch"
+            role="switch"
+            aria-checked={app.settings.live.enabled}
+            aria-label="Show words while I speak"
+            onclick={setLive}
+          ></button>
         </div>
       </div>
     </div>

@@ -16,6 +16,7 @@ pub struct Settings {
     pub stt: SttSettings,
     pub startup: StartupSettings,
     pub ui: UiSettings,
+    pub live: LiveSettings,
 }
 
 impl Default for Settings {
@@ -27,6 +28,7 @@ impl Default for Settings {
             stt: SttSettings::default(),
             startup: StartupSettings::default(),
             ui: UiSettings::default(),
+            live: LiveSettings::default(),
         }
     }
 }
@@ -108,6 +110,19 @@ impl Default for UiSettings {
             pill_position: PillPosition::Bottom,
             sounds: true,
         }
+    }
+}
+
+/// Words shown above the pill while you speak.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiveSettings {
+    pub enabled: bool,
+}
+
+impl Default for LiveSettings {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -208,6 +223,15 @@ mod tests {
         let mut s = Settings::default();
         migrate_active_variant(&mut s);
         assert_eq!(s.stt.active_variant, None);
+    }
+
+    #[test]
+    fn live_text_is_on_by_default_including_for_older_settings_files() {
+        assert!(Settings::default().live.enabled);
+        let old: Settings = serde_json::from_str(r#"{"schema_version":1}"#).unwrap();
+        assert!(old.live.enabled);
+        let off: Settings = serde_json::from_str(r#"{"live":{"enabled":false}}"#).unwrap();
+        assert!(!off.live.enabled);
     }
 
     #[test]

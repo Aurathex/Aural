@@ -4,7 +4,10 @@ import { mount } from "svelte";
 import Pill from "./Pill.svelte";
 import type { PillView } from "../lib/types";
 
+const words = { stable: "He hoped there would be stew for dinner, turnips and carrots and", tentative: "bruised potatoes" };
 const states: [string, PillView][] = [
+  ["Live text", { state: { state: "listening" }, label: null, caption: "bottom" }],
+  ["Live text (pill at top)", { state: { state: "listening" }, label: null, caption: "top" }],
   ["Listening", { state: { state: "listening" }, label: null }],
   ["Processing", { state: { state: "processing" }, label: null }],
   ["Success", { state: { state: "success" }, label: null }],
@@ -29,7 +32,7 @@ for (const bg of ["#ffffff", "#1f1f1f"]) {
     col.appendChild(row);
     const t0 = performance.now();
     const levels = Array.from({ length: 12 }, (_, i) => 0.7 - i * 0.05);
-    const props = $state({ preview: view, levels });
+    const props = $state({ preview: view, levels, words: view.caption ? words : null });
     mount(Pill, { target: slot, props });
     if (view.state.state === "listening") {
       setInterval(() => {

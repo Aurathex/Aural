@@ -2,6 +2,7 @@
 //! background thread; status is kept separately so the UI never waits on a load.
 
 use aural_core::error::ErrorCode;
+use aural_engines::live::{LiveMode, LiveText};
 use aural_engines::{Backend, Engine};
 use aural_models::{ModelEntry, ModelStore};
 use aural_stt_protocol::client::{ClientError, SttClient, WorkerKiller, WorkerSpec};
@@ -169,6 +170,38 @@ impl EngineHost {
             }
         }
         None
+    }
+
+    fn with_client<T>(
+        &self,
+        f: impl FnOnce(&mut SttClient) -> Result<T, ClientError>,
+    ) -> Result<T, ErrorCode> {
+        let mut guard = self.client.lock().map_err(|_| ErrorCode::EngineFailed)?;
+        let client = guard.as_mut().ok_or(ErrorCode::NoModel)?;
+        f(client).map_err(|e| match e {
+            ClientError::NotLoaded | ClientError::Stopped => ErrorCode::NoModel,
+            _ => ErrorCode::EngineFailed,
+        })
+    }
+
+    pub fn live_begin(&self) -> Result<LiveMode, ErrorCode> {
+        self.with_client(|c| c.live_begin(Duration::from_secs(10)))
+    }
+
+    pub fn live_push(&self, pcm: &[f32]) -> Result<LiveText, ErrorCode> {
+        self.with_client(|c| c.live_push(pcm, Duration::from_secs(30)))
+    }
+
+    /// `seconds`: length of the whole recording, for the timeout.
+    pub fn live_end(&self, pcm: &[f32], seconds: u64) -> Result<String, ErrorCode> {
+        self.with_client(|c| c.live_end(pcm, Duration::from_secs(30 + 2 * seconds)))
+    }
+
+    pub fn live_cancel(&self) {
+        let _ = self.with_client(|c| {
+            c.live_cancel();
+            Ok(())
+        });
     }
 
     pub fn transcribe(&self, pcm: &[f32]) -> Result<String, ErrorCode> {

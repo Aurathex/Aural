@@ -5,6 +5,7 @@ pub mod dictation;
 pub mod engine;
 pub mod hwtest;
 pub mod io;
+pub mod live;
 pub mod pill;
 pub mod shell;
 pub mod sounds;
