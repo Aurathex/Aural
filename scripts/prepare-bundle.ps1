@@ -25,16 +25,39 @@ $cargoArgs = @('build')
 if ($BuildProfile -eq 'release') { $cargoArgs += '--release' }
 
 # The workers use mutually exclusive engine features, so build them one at a time.
-foreach ($worker in 'aural-stt-onnx', 'aural-stt-ggml') {
-    Write-Host "Building $worker ($BuildProfile)..."
-    & cargo @cargoArgs -p $worker --manifest-path (Join-Path $root 'Cargo.toml')
-    if ($LASTEXITCODE -ne 0) { throw "cargo build -p $worker failed" }
+Write-Host "Building aural-stt-onnx ($BuildProfile)..."
+& cargo @cargoArgs -p aural-stt-onnx --manifest-path (Join-Path $root 'Cargo.toml')
+if ($LASTEXITCODE -ne 0) { throw 'cargo build -p aural-stt-onnx failed' }
+
+# The Whisper worker is built with Vulkan so it can use NVIDIA and AMD graphics cards
+# (the Vulkan loader comes with the GPU driver; nothing extra ships). Building it needs
+# the Vulkan SDK. whisper.cpp's shader build nests CMake projects deep enough to pass
+# MSVC's 260-character path limit (error C1083) under a long checkout path, so it gets
+# a short build folder when needed: AURAL_VK_TARGET_DIR, or <drive>\aural-vk-target.
+if (-not $env:VULKAN_SDK) { $env:VULKAN_SDK = [Environment]::GetEnvironmentVariable('VULKAN_SDK', 'Machine') }
+if (-not $env:VULKAN_SDK -or -not (Test-Path (Join-Path $env:VULKAN_SDK 'Bin\glslc.exe'))) {
+    throw 'The Vulkan SDK is needed to build the Whisper worker (winget install KhronosGroup.VulkanSDK); see docs/building-windows.md'
+}
+$env:PATH = "$(Join-Path $env:VULKAN_SDK 'Bin');$env:PATH"
+$ggmlTargetRoot = $targetRoot
+if ($env:AURAL_VK_TARGET_DIR) {
+    $ggmlTargetRoot = $env:AURAL_VK_TARGET_DIR
+} elseif ($targetRoot.Length -gt 40) {
+    $ggmlTargetRoot = Join-Path ([IO.Path]::GetPathRoot("$root")) 'aural-vk-target'
+}
+Write-Host "Building aural-stt-ggml with Vulkan ($BuildProfile) in $ggmlTargetRoot..."
+$saved = $env:CARGO_TARGET_DIR
+$env:CARGO_TARGET_DIR = $ggmlTargetRoot
+try {
+    & cargo @cargoArgs -p aural-stt-ggml --features vulkan --manifest-path (Join-Path $root 'Cargo.toml')
+    if ($LASTEXITCODE -ne 0) { throw 'cargo build -p aural-stt-ggml --features vulkan failed' }
+} finally {
+    $env:CARGO_TARGET_DIR = $saved
 }
 
 New-Item -ItemType Directory -Force $bin, $runtime | Out-Null
-foreach ($worker in 'aural-stt-onnx', 'aural-stt-ggml') {
-    Copy-Item (Join-Path $target "$worker.exe") (Join-Path $bin "$worker-$triple.exe") -Force
-}
+Copy-Item (Join-Path $target 'aural-stt-onnx.exe') (Join-Path $bin "aural-stt-onnx-$triple.exe") -Force
+Copy-Item (Join-Path (Join-Path $ggmlTargetRoot $BuildProfile) 'aural-stt-ggml.exe') (Join-Path $bin "aural-stt-ggml-$triple.exe") -Force
 
 # ONNX Runtime's prebuilt library imports DirectML.dll; ship the version it was built
 # against rather than relying on the older copy in System32 on early Windows 10 builds.

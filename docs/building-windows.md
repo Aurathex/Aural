@@ -9,16 +9,23 @@
 | Node.js 24 LTS | settings window and pill (Svelte + Vite) | `winget install OpenJS.NodeJS.LTS` |
 | CMake | builds whisper.cpp | `winget install Kitware.CMake` |
 | LLVM | libclang for whisper-rs bindgen (its bundled bindings are Linux-only) | `winget install LLVM.LLVM`, then set `LIBCLANG_PATH=C:\Program Files\LLVM\bin` |
+| Vulkan SDK | the Whisper worker's graphics-card support (shader compiler `glslc`) | `winget install KhronosGroup.VulkanSDK` |
 
 ONNX Runtime is downloaded by the `ort` crate during the build. `.cargo/config.toml`
 sets `CL=/O2`; without it whisper.cpp is compiled unoptimized on MSVC. If `CL` is
 already set in your shell, that value wins, so unset it.
 
+`scripts/prepare-bundle.ps1` builds the Whisper worker with Vulkan. whisper.cpp's shader
+build nests CMake projects deep enough to pass MSVC's 260-character path limit (error
+C1083) under a long checkout path, so when the build folder path is long it builds that
+worker in `<drive>\aural-vk-target`, or wherever `AURAL_VK_TARGET_DIR` points. Users
+need nothing extra: the Vulkan runtime comes with the graphics driver.
+
 ## Layout
 
 - `crates/aural-core` — settings, paths, dictation state machine, Delete Aural plan (no Win32)
 - `crates/aural-audio` — microphone capture, resampling, level bands, silence gate
-- `crates/aural-engines` — Parakeet (`onnx` feature) and Whisper (`ggml` feature) adapters
+- `crates/aural-engines` — Parakeet and Moonshine (`onnx` feature, processor or DirectML) and Whisper (`ggml` feature, processor or Vulkan) adapters
 - `crates/aural-models` — model catalog (`manifests/catalog.v2.json`), downloads, installs
 - `crates/aural-platform` — Windows: hotkey hook, text insertion, autostart, mic consent
 - `crates/aural-stt-protocol` — worker protocol, client, fake worker for tests

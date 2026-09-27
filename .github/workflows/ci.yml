@@ -38,7 +38,20 @@ jobs:
       # Speech workers: built one at a time (their engine features are exclusive),
       # then staged next to the app together with DirectML and the MSVC runtime.
       - run: cargo clippy -p aural-stt-onnx --all-targets -- -D warnings
-      - run: cargo clippy -p aural-stt-ggml --all-targets -- -D warnings
+      - run: cargo clippy -p aural-stt-ggml --all-targets -- -D warnings  # CPU build; prepare-bundle below also compiles the Vulkan build
+      - name: Vulkan SDK (GPU support for the Whisper worker)
+        shell: pwsh
+        env:
+          VULKAN_SDK_URL: https://sdk.lunarg.com/sdk/download/1.4.357.0/windows/vulkansdk-windows-X64-1.4.357.0.exe
+          VULKAN_SDK_SHA256: 81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d
+        run: |
+          Invoke-WebRequest $env:VULKAN_SDK_URL -OutFile vulkansdk.exe
+          $hash = (Get-FileHash vulkansdk.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $env:VULKAN_SDK_SHA256) { throw "Vulkan SDK hash mismatch: $hash" }
+          $dir = 'C:\VulkanSDK\1.4.357.0'
+          Start-Process ./vulkansdk.exe -Wait -ArgumentList '--root', $dir, '--accept-licenses', '--default-answer', '--confirm-command', 'install'
+          if (-not (Test-Path "$dir\Bin\glslc.exe")) { throw 'Vulkan SDK did not install' }
+          "VULKAN_SDK=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Stage sidecars and runtime DLLs
         shell: pwsh
         run: ./scripts/prepare-bundle.ps1 -BuildProfile debug
