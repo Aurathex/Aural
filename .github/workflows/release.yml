@@ -82,7 +82,7 @@ jobs:
             "cmake: $((cmake --version)[0])",
             "Cargo.lock sha256: $(Sha Cargo.lock)",
             "app/package-lock.json sha256: $(Sha app/package-lock.json)",
-            "manifests/catalog.v1.json sha256: $(Sha manifests/catalog.v1.json)"
+            "manifests/catalog.v2.json sha256: $(Sha manifests/catalog.v2.json)"
           ) | Out-File -Encoding ascii BUILD-INFO.txt
           # Bundled Microsoft DLLs come from the build machine, so record exactly which.
           Get-ChildItem app/src-tauri/runtime -Filter *.dll | ForEach-Object {

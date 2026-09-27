@@ -2,33 +2,86 @@
 //! Every file is pinned to an immutable URL and a SHA-256.
 
 use anyhow::{bail, Context, Result};
-use aural_engines::Engine;
+pub use aural_engines::{Backend, Engine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-const BUILTIN: &str = include_str!("../../../manifests/catalog.v1.json");
+const BUILTIN: &str = include_str!("../../../manifests/catalog.v2.json");
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Catalog {
     pub version: u32,
     pub models: Vec<ModelEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The worker family that runs a model's files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Runtime {
+    /// ONNX Runtime, in the `aural-stt-onnx` worker.
+    Onnx,
+    /// whisper.cpp / ggml, in the `aural-stt-ggml` worker.
+    Ggml,
+}
+
+/// One downloadable file set: a model's weights at one precision. Its id is also its
+/// folder name, unchanged from catalog v1 for the models v0.1 shipped.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelEntry {
     pub id: String,
     pub name: String,
+    /// "parakeet" | "whisper" | "moonshine" | …
+    pub family: String,
     pub engine: Engine,
+    pub runtime: Runtime,
+    /// "int8" | "fp16" | "fp32" | "q5_0" | "q8_0" | …
+    pub precision: String,
+    /// The engine can produce partial results while audio is still coming in.
+    pub streaming: bool,
+    /// Used only by the hardware test to calibrate this PC; hidden from the Models page.
+    pub probe: bool,
     pub description: String,
     pub languages: Vec<String>,
-    pub min_ram_mb: u64,
-    /// "best" | "good" | "basic" — shown as a label only.
-    pub accuracy: String,
-    /// "fast" | "moderate" — shown as a label only.
-    pub speed: String,
     pub license: ModelLicense,
     pub source: String,
     pub files: Vec<ModelFile>,
+    /// The backends these files can run on. Each is one compatibility unit:
+    /// Model + Runtime + Backend + Precision, with id `<model id>@<backend>`.
+    pub variants: Vec<Variant>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Variant {
+    pub backend: Backend,
+    pub min_ram_mb: u64,
+    pub min_vram_mb: u64,
+    /// Measured on the reference PC (docs/benchmarks); used to estimate other PCs.
+    pub reference: Option<Reference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Reference {
+    pub wer: f64,
+    pub p50_ms: u64,
+    pub rtf: f64,
+    pub load_ms: u64,
+    pub ram_mb: u64,
+    pub vram_mb: u64,
+}
+
+fn backend_name(b: Backend) -> String {
+    serde_json::to_value(b)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// Split `<model id>@<backend>` into its parts; `None` if it isn't a variant id.
+pub fn split_variant_id(id: &str) -> Option<(&str, Backend)> {
+    let (model, backend) = id.rsplit_once('@')?;
+    let backend: Backend =
+        serde_json::from_value(serde_json::Value::String(backend.into())).ok()?;
+    (!model.is_empty()).then_some((model, backend))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +103,31 @@ impl ModelEntry {
     pub fn total_size(&self) -> u64 {
         self.files.iter().map(|f| f.size).sum()
     }
+
+    pub fn variant_id(&self, backend: Backend) -> String {
+        format!("{}@{}", self.id, backend_name(backend))
+    }
+
+    pub fn variant(&self, backend: Backend) -> Option<&Variant> {
+        self.variants.iter().find(|v| v.backend == backend)
+    }
+
+    /// Smallest RAM any variant needs (the model's CPU requirement, in practice).
+    pub fn min_ram_mb(&self) -> u64 {
+        self.variants
+            .iter()
+            .map(|v| v.min_ram_mb)
+            .min()
+            .unwrap_or(0)
+    }
+}
+
+/// The runtime an engine's files are read by.
+fn runtime_of(engine: Engine) -> Runtime {
+    match engine {
+        Engine::Parakeet => Runtime::Onnx,
+        Engine::Whisper => Runtime::Ggml,
+    }
 }
 
 impl Catalog {
@@ -69,9 +147,33 @@ impl Catalog {
         self.models.iter().find(|m| m.id == id)
     }
 
-    fn validate(&self) -> Result<()> {
+    /// Look up a variant by its `<model id>@<backend>` id.
+    pub fn variant(&self, id: &str) -> Option<(&ModelEntry, &Variant)> {
+        let (model, backend) = split_variant_id(id)?;
+        let m = self.get(model)?;
+        Some((m, m.variant(backend)?))
+    }
+
+    pub fn validate(&self) -> Result<()> {
         let mut ids = HashSet::new();
         for m in &self.models {
+            if m.variants.is_empty() {
+                bail!("model {} has no variants", m.id);
+            }
+            let mut backends = HashSet::new();
+            for v in &m.variants {
+                if !backends.insert(v.backend) {
+                    bail!("model {}: duplicate {:?} variant", m.id, v.backend);
+                }
+            }
+            if runtime_of(m.engine) != m.runtime {
+                bail!(
+                    "model {}: engine {:?} does not run on the {:?} runtime",
+                    m.id,
+                    m.engine,
+                    m.runtime
+                );
+            }
             if !is_safe_id(&m.id) {
                 bail!(
                     "model id {:?} must be lowercase letters, digits, '.', '-' or '_'",
@@ -132,13 +234,79 @@ mod tests {
 
     fn one(id: &str, file_name: &str, url: &str, sha: &str) -> String {
         format!(
-            r#"{{"version":1,"models":[{{"id":"{id}","name":"N","engine":"whisper","description":"d",
-            "languages":["en"],"min_ram_mb":512,"accuracy":"basic","speed":"fast",
+            r#"{{"version":2,"models":[{{"id":"{id}","name":"N","family":"whisper","engine":"whisper",
+            "runtime":"ggml","precision":"q8_0","streaming":false,"probe":false,"description":"d",
+            "languages":["en"],
             "license":{{"id":"MIT","url":"https://x","attribution":"a"}},"source":"https://x",
-            "files":[{{"name":"{file_name}","url":"{url}","sha256":"{sha}","size":3}}]}}]}}"#
+            "files":[{{"name":"{file_name}","url":"{url}","sha256":"{sha}","size":3}}],
+            "variants":[{{"backend":"cpu","min_ram_mb":512,"min_vram_mb":0,"reference":null}}]}}]}}"#
         )
     }
     const SHA: &str = "a4d4a0768075e13cfd7e19df3ae2dbc4a68d37d36a7dad45e8410c9a34f8c87e";
+
+    #[test]
+    fn builtin_catalog_is_v2_and_valid() {
+        let c = Catalog::builtin();
+        assert_eq!(c.version, 2);
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn v01_model_ids_are_unchanged() {
+        let c = Catalog::builtin();
+        for id in [
+            "parakeet-tdt-0.6b-v2-int8",
+            "whisper-small.en-q8",
+            "whisper-base.en-q8",
+        ] {
+            assert!(
+                c.get(id).is_some(),
+                "{id} missing: v0.1 installs would lose their model"
+            );
+        }
+    }
+
+    #[test]
+    fn variant_ids_round_trip() {
+        let c = Catalog::builtin();
+        let m = c.get("parakeet-tdt-0.6b-v2-int8").unwrap();
+        let id = m.variant_id(Backend::Cpu);
+        assert_eq!(id, "parakeet-tdt-0.6b-v2-int8@cpu");
+        assert_eq!(
+            split_variant_id(&id),
+            Some(("parakeet-tdt-0.6b-v2-int8", Backend::Cpu))
+        );
+        let (model, variant) = c.variant(&id).unwrap();
+        assert_eq!(
+            (model.id.as_str(), variant.backend),
+            ("parakeet-tdt-0.6b-v2-int8", Backend::Cpu)
+        );
+        assert!(
+            c.variant("parakeet-tdt-0.6b-v2-int8@vulkan").is_none(),
+            "parakeet has no vulkan variant"
+        );
+        assert_eq!(split_variant_id("no-at-sign"), None);
+        assert_eq!(split_variant_id("m@not-a-backend"), None);
+    }
+
+    #[test]
+    fn validation_rejects_bad_catalogs() {
+        let good = Catalog::builtin();
+        let mut c = good.clone();
+        c.models[0].variants.clear();
+        assert!(c
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("no variants"));
+        let mut c = good.clone();
+        let dup = c.models[0].variants[0].clone();
+        c.models[0].variants.push(dup);
+        assert!(c.validate().unwrap_err().to_string().contains("duplicate"));
+        let mut c = good.clone();
+        c.models[0].runtime = Runtime::Ggml; // parakeet engine on the ggml runtime
+        assert!(c.validate().unwrap_err().to_string().contains("runtime"));
+    }
 
     #[test]
     fn builtin_catalog_is_valid_and_has_the_default_model() {

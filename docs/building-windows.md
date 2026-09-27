@@ -19,7 +19,7 @@ already set in your shell, that value wins, so unset it.
 - `crates/aural-core` — settings, paths, dictation state machine, Delete Aural plan (no Win32)
 - `crates/aural-audio` — microphone capture, resampling, level bands, silence gate
 - `crates/aural-engines` — Parakeet (`onnx` feature) and Whisper (`ggml` feature) adapters
-- `crates/aural-models` — model catalog (`manifests/catalog.v1.json`), downloads, installs
+- `crates/aural-models` — model catalog (`manifests/catalog.v2.json`), downloads, installs
 - `crates/aural-platform` — Windows: hotkey hook, text insertion, autostart, mic consent
 - `crates/aural-stt-protocol` — worker protocol, client, fake worker for tests
 - `workers/stt-onnx`, `workers/stt-ggml` — speech worker processes (one per engine family)

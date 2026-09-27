@@ -25,8 +25,6 @@ export interface ModelStatus {
   description: string;
   size_bytes: number;
   min_ram_mb: number;
-  accuracy: string;
-  speed: string;
   state: ModelState;
   removable: boolean;
   compatible: boolean;

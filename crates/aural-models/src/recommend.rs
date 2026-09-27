@@ -75,7 +75,7 @@ fn total_ram_mb() -> u64 {
 }
 
 pub fn compatible(entry: &ModelEntry, hw: &HardwareProfile) -> bool {
-    hw.total_ram_mb >= entry.min_ram_mb
+    hw.total_ram_mb >= entry.min_ram_mb()
 }
 
 /// Parakeet needs a reasonably modern CPU to feel instant; older or smaller machines

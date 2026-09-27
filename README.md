@@ -84,7 +84,7 @@ Worth looking at:
 | What the installer and uninstaller do | `app/src-tauri/tauri.conf.json`, `app/src-tauri/windows/hooks.nsh` |
 | How releases are built and published | `.github/workflows/release.yml`, `docs/releasing.md` |
 | Every dependency, pinned | `Cargo.lock`, `app/package-lock.json`, `rust-toolchain.toml`; policy in `deny.toml` |
-| Where speech models come from, with their SHA-256 | `manifests/catalog.v1.json` (Hugging Face URLs pinned to exact commits) |
+| Where speech models come from, with their SHA-256 | `manifests/catalog.v2.json` (Hugging Face URLs pinned to exact commits) |
 | What Aural sends over the network (only model downloads) | `PRIVACY.md`, `crates/aural-models/src/download.rs` |
 | Keyboard hook, clipboard and text insertion | `crates/aural-platform/src/` |
 | Third-party licenses | `THIRD_PARTY_NOTICES.md` |

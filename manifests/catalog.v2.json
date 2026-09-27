@@ -1,15 +1,19 @@
 {
-  "version": 1,
+  "version": 2,
   "models": [
     {
       "id": "parakeet-tdt-0.6b-v2-int8",
       "name": "Parakeet TDT 0.6B v2",
+      "family": "parakeet",
       "engine": "parakeet",
+      "runtime": "onnx",
+      "precision": "int8",
+      "streaming": false,
+      "probe": false,
       "description": "Most accurate English model. Fast on modern CPUs.",
-      "languages": ["en"],
-      "min_ram_mb": 2048,
-      "accuracy": "best",
-      "speed": "fast",
+      "languages": [
+        "en"
+      ],
       "license": {
         "id": "CC-BY-4.0",
         "url": "https://creativecommons.org/licenses/by/4.0/",
@@ -41,17 +45,36 @@
           "sha256": "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
           "size": 9384
         }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 2048,
+          "min_vram_mb": 0,
+          "reference": {
+            "ram_mb": 861,
+            "load_ms": 2060,
+            "rtf": 0.049,
+            "p50_ms": 257,
+            "wer": 0.0251,
+            "vram_mb": 0
+          }
+        }
       ]
     },
     {
       "id": "whisper-small.en-q8",
       "name": "Whisper small.en",
+      "family": "whisper",
       "engine": "whisper",
+      "runtime": "ggml",
+      "precision": "q8_0",
+      "streaming": false,
+      "probe": false,
       "description": "Good accuracy, lighter on memory. A solid choice for older PCs.",
-      "languages": ["en"],
-      "min_ram_mb": 1024,
-      "accuracy": "good",
-      "speed": "moderate",
+      "languages": [
+        "en"
+      ],
       "license": {
         "id": "MIT",
         "url": "https://github.com/openai/whisper/blob/main/LICENSE",
@@ -65,17 +88,36 @@
           "sha256": "67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067",
           "size": 264477561
         }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 1024,
+          "min_vram_mb": 0,
+          "reference": {
+            "ram_mb": 562,
+            "load_ms": 624,
+            "rtf": 0.559,
+            "p50_ms": 2740,
+            "wer": 0.0313,
+            "vram_mb": 0
+          }
+        }
       ]
     },
     {
       "id": "whisper-base.en-q8",
       "name": "Whisper base.en",
+      "family": "whisper",
       "engine": "whisper",
+      "runtime": "ggml",
+      "precision": "q8_0",
+      "streaming": false,
+      "probe": false,
       "description": "Smallest and quickest to download. Less accurate.",
-      "languages": ["en"],
-      "min_ram_mb": 512,
-      "accuracy": "basic",
-      "speed": "fast",
+      "languages": [
+        "en"
+      ],
       "license": {
         "id": "MIT",
         "url": "https://github.com/openai/whisper/blob/main/LICENSE",
@@ -88,6 +130,21 @@
           "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en-q8_0.bin",
           "sha256": "a4d4a0768075e13cfd7e19df3ae2dbc4a68d37d36a7dad45e8410c9a34f8c87e",
           "size": 81781811
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 512,
+          "min_vram_mb": 0,
+          "reference": {
+            "ram_mb": 275,
+            "load_ms": 256,
+            "rtf": 0.155,
+            "p50_ms": 819,
+            "wer": 0.0488,
+            "vram_mb": 0
+          }
         }
       ]
     }

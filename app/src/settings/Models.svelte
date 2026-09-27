@@ -19,9 +19,6 @@
     }
   }
 
-  const accuracy: Record<string, string> = { best: "Best accuracy", good: "Good accuracy", basic: "Basic accuracy" };
-  const speed: Record<string, string> = { fast: "Fast", moderate: "Moderate speed" };
-
   function engineLine(a: AppState): string {
     const e = a.engine;
     if (e.state === "ready") return `Ready · ${a.models.find((m) => m.id === e.model)?.name ?? e.label} on CPU`;
@@ -56,7 +53,7 @@
           </div>
           <div class="desc">{m.description}</div>
           <div class="meta num">
-            {accuracy[m.accuracy] ?? m.accuracy} · {speed[m.speed] ?? m.speed} · {formatBytes(m.size_bytes)} · {m.license_id}
+            {formatBytes(m.size_bytes)} · {m.license_id}
             {#if !m.compatible}<span class="warn">· Needs {ram(m.min_ram_mb)}</span>{/if}
           </div>
           {#if m.state.kind === "downloading"}
