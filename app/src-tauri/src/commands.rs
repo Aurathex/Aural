@@ -59,11 +59,6 @@ pub fn save_settings(app: State<'_, Arc<App>>, settings: Settings) -> Res<AppSta
         return Err(why);
     }
     let old = app.settings();
-    if let Some(id) = &settings.stt.active_variant {
-        if app.catalog.variant(id).is_none() {
-            return Err(format!("unknown model variant {id}"));
-        }
-    }
     if old.startup.launch_at_login != settings.startup.launch_at_login {
         let exe = std::env::current_exe().map_err(err)?;
         aural_platform::autostart::set_enabled(
@@ -81,11 +76,14 @@ pub fn save_settings(app: State<'_, Arc<App>>, settings: Settings) -> Res<AppSta
     if old.hotkey.mode != settings.hotkey.mode {
         app.send(Control::SetMode(settings.hotkey.mode));
     }
-    let model_changed = old.stt.active_variant != settings.stt.active_variant;
-    app.save_settings(settings).map_err(err)?;
-    if model_changed {
-        app.reload_engine();
-    }
+    // The model is chosen with use_variant (or switched automatically); a settings save
+    // from the window may carry an older choice, so it never changes the model.
+    app.update_settings(|s| {
+        let stt = s.stt.clone();
+        *s = settings;
+        s.stt = stt;
+    })
+    .map_err(err)?;
     Ok(app.snapshot())
 }
 

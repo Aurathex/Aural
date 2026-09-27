@@ -38,11 +38,12 @@ pub struct GpuInfo {
     pub luid: u64,
 }
 
-/// Integrated graphics: little dedicated memory, or an Intel or AMD part that leans on
-/// shared memory more than its own (AMD at most 2 GB of its own).
+/// Integrated graphics: little dedicated memory, or an Intel or AMD part with at most
+/// 2 GB of its own that leans on shared memory more.
 pub fn is_integrated(vendor: Vendor, dedicated_mb: u64, shared_mb: u64) -> bool {
     dedicated_mb < 512
-        || (vendor == Vendor::Intel && shared_mb > dedicated_mb)
+        // Intel built-in graphics reserve little of their own (Arc cards have 6-16 GB).
+        || (vendor == Vendor::Intel && dedicated_mb <= 2_048 && shared_mb > dedicated_mb)
         // AMD processors with Radeon graphics reserve 512 MB-2 GB of RAM for it.
         || (vendor == Vendor::Amd && dedicated_mb <= 2_048 && shared_mb > dedicated_mb)
 }
@@ -246,6 +247,10 @@ mod tests {
         // A separate Radeon card has more of its own memory than it shares.
         assert!(!is_integrated(Vendor::Amd, 16_368, 15_000));
         assert!(!is_integrated(Vendor::Amd, 4_096, 3_000));
+        // Intel Arc A750 / B580 cards on a 32 GB PC: Windows reports ~16 GB shared, more
+        // than their own 8-12 GB, but they are separate cards.
+        assert!(!is_integrated(Vendor::Intel, 8_192, 16_300));
+        assert!(!is_integrated(Vendor::Intel, 12_288, 16_300));
         // Intel Arc A770: 16 GB of its own memory is a separate card.
         assert!(!is_integrated(Vendor::Intel, 16_000, 7_900));
     }

@@ -49,7 +49,12 @@
 
   <HardwareTest {app} {update} />
 
-  {#if error}<div class="callout" role="alert"><div class="text">{error}</div></div>{/if}
+  {#if error}
+    <div class="callout" role="alert">
+      <div class="text">That didn't work. Please try again.</div>
+      <details class="tech"><summary>Technical details</summary>{error}</details>
+    </div>
+  {/if}
 
   <div class="rows">
     {#each app.models as m (m.id)}

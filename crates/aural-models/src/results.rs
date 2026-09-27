@@ -138,6 +138,16 @@ impl ResultsStore {
         }
     }
 
+    /// Stores a result measured outside a full check (after a download or a failed load).
+    /// If the store was checked on other hardware, it stays as it is (still asking for a
+    /// new check) instead of being wiped.
+    pub fn record_measurement(&mut self, hw: &HardwareProfile, r: VariantResult) {
+        if !(self.is_stale(hw) && self.checked()) {
+            self.adopt(hw);
+        }
+        self.put(r);
+    }
+
     /// Starts over for this hardware: drops old results and calibrations.
     pub fn reset_for(&mut self, hw: &HardwareProfile) {
         self.file = ResultsFile {
@@ -243,6 +253,25 @@ mod tests {
         s.adopt(&hw("2"));
         assert!(s.get("a@cpu").is_none());
         assert!(!s.is_stale(&hw("2")));
+    }
+
+    #[test]
+    fn a_measurement_after_a_hardware_change_keeps_asking_for_a_new_check() {
+        // A model failed to load after a driver update: remember it, but don't wipe the
+        // store (which would turn "Your PC has changed" into a first-run prompt).
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = ResultsStore::load(&dir.path().join("hardware.json")).unwrap();
+        s.reset_for(&hw("1"));
+        s.mark_checked();
+        s.put(result("a@cpu", true, 300));
+        s.record_measurement(&hw("2"), result("b@cpu", true, 400));
+        assert!(s.checked());
+        assert!(s.is_stale(&hw("2")));
+        assert!(s.get("a@cpu").is_some() && s.get("b@cpu").is_some());
+        // On a store never checked, the measurement ties it to this PC.
+        let mut fresh = ResultsStore::load(&dir.path().join("other.json")).unwrap();
+        fresh.record_measurement(&hw("2"), result("b@cpu", true, 400));
+        assert!(!fresh.is_stale(&hw("2")));
     }
 
     #[test]

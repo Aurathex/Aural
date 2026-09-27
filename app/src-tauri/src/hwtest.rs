@@ -421,6 +421,8 @@ pub struct HwTest {
     jobs: Mutex<VecDeque<Job>>,
     wake: Condvar,
     cancel: Arc<AtomicBool>,
+    /// A full check (not a download measurement) is running right now.
+    test_running: AtomicBool,
     clips: OnceLock<Result<Vec<Clip>, String>>,
 }
 
@@ -432,6 +434,7 @@ impl HwTest {
             jobs: Mutex::new(VecDeque::new()),
             wake: Condvar::new(),
             cancel: Arc::new(AtomicBool::new(false)),
+            test_running: AtomicBool::new(false),
             clips: OnceLock::new(),
         }
     }
@@ -477,6 +480,9 @@ pub fn spawn_runner(app: &Arc<App>) {
                         // Cleared under the jobs lock: a cancel that drops queued jobs
                         // can't land between taking this job and clearing the flag.
                         app.hwtest.cancel.store(false, Ordering::SeqCst);
+                        app.hwtest
+                            .test_running
+                            .store(matches!(j, Job::FullTest { .. }), Ordering::SeqCst);
                         break j;
                     }
                     jobs = app
@@ -486,24 +492,35 @@ pub fn spawn_runner(app: &Arc<App>) {
                         .unwrap_or_else(|p| p.into_inner());
                 }
             };
-            match job {
-                Job::FullTest {
-                    allow_probe_download,
-                } => full_test(&app, allow_probe_download),
-                Job::Measure(variant) => {
-                    set_step(
-                        &app,
-                        Some(HwStep::Measuring {
-                            variant: variant.clone(),
-                        }),
-                        0,
-                        1,
-                    );
-                    if let Some(r) = measure(&app, &variant) {
-                        record(&app, r);
+            // A bug in one job must not leave the check stuck on "Checking your PC".
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                match job {
+                    Job::FullTest {
+                        allow_probe_download,
+                    } => full_test(&app, allow_probe_download),
+                    Job::Measure(variant) => {
+                        set_step(
+                            &app,
+                            Some(HwStep::Measuring {
+                                variant: variant.clone(),
+                            }),
+                            0,
+                            1,
+                        );
+                        if let Some(r) = measure(&app, &variant) {
+                            record(&app, r);
+                        }
+                        set_step(&app, None, 0, 0);
                     }
-                    set_step(&app, None, 0, 0);
                 }
+            }));
+            app.hwtest.test_running.store(false, Ordering::SeqCst);
+            if outcome.is_err() {
+                lock(&app.hwtest.status).running = false;
+                set_step(&app, None, 0, 0);
+                app.set_notice(
+                    "Aural's PC check stopped unexpectedly. You can keep dictating, and try the check again later.",
+                );
             }
             apply_active_policy(&app);
             app.broadcast();
@@ -527,11 +544,15 @@ pub fn start(app: &Arc<App>, allow_probe_download: bool) {
 pub fn cancel(app: &Arc<App>) {
     // Measurements of new downloads stay queued; a check that was queued but never
     // started must not look like it is running.
-    let dropped = drop_tests(&mut lock(&app.hwtest.jobs));
+    let jobs = &mut lock(&app.hwtest.jobs);
+    let dropped = drop_tests(jobs);
     if dropped {
         lock(&app.hwtest.status).running = false;
     }
-    app.hwtest.cancel.store(true, Ordering::SeqCst);
+    // Stop only a running check; a download's measurement in progress carries on.
+    if app.hwtest.test_running.load(Ordering::SeqCst) {
+        app.hwtest.cancel.store(true, Ordering::SeqCst);
+    }
 }
 
 /// After a download: measure the new model on what this PC can run.
@@ -548,7 +569,7 @@ pub fn measure_download(app: &Arc<App>, entry: &ModelEntry) {
 
 /// Current results and labels for the Models page.
 pub fn evaluation(app: &App) -> Evaluation {
-    let words = clips(app).map_or(0, clip_words);
+    let words = clips(app).map_or(BUILT_IN_CLIP_WORDS, clip_words);
     // Memory limits use what is free now, not what was free when Aural started.
     let mut hw = app.hw.clone();
     let free = aural_models::recommend::free_ram_mb();
@@ -564,6 +585,21 @@ pub fn evaluation(app: &App) -> Evaluation {
     }
     evaluate(&app.catalog, &results, &hw, words)
 }
+
+/// The built-in recordings are needed to try models; without them (a damaged install)
+/// nothing is measured, rather than every model looking broken.
+fn clips_available(app: &App) -> bool {
+    let ok = clips(app).is_ok();
+    if !ok {
+        app.set_notice(
+            "Aural's built-in test recordings are missing, so it can't try models on this PC. Reinstalling Aural fixes this.",
+        );
+    }
+    ok
+}
+
+/// Words in the built-in clips (assets/eval); used for margins if they can't be read.
+const BUILT_IN_CLIP_WORDS: usize = 396;
 
 fn clip_words(clips: &[Clip]) -> usize {
     clips
@@ -651,6 +687,9 @@ fn run_bench(app: &App, entry: &ModelEntry, backend: Backend, passes: usize) -> 
 
 /// Measures one installed variant; `None` if it isn't installed or was cancelled.
 fn measure(app: &App, variant: &str) -> Option<VariantResult> {
+    if !clips_available(app) {
+        return None;
+    }
     let (entry, v) = app.catalog.variant(variant)?;
     if !app.store.is_installed(entry) {
         return None;
@@ -662,13 +701,17 @@ fn measure(app: &App, variant: &str) -> Option<VariantResult> {
 /// Stores a result measured outside a full check (after a download, or a failed load).
 fn record(app: &App, r: VariantResult) {
     let mut results = lock(&app.hwtest.results);
-    results.adopt(&app.hw);
-    results.put(r);
+    results.record_measurement(&app.hw, r);
     let _ = results.save();
 }
 
 fn full_test(app: &Arc<App>, allow_probe_download: bool) {
     set_step(app, Some(HwStep::Detecting), 0, 0);
+    if !clips_available(app) {
+        lock(&app.hwtest.status).running = false;
+        set_step(app, None, 0, 0);
+        return;
+    }
     let mut run = TestRun::default();
 
     // Probes: two small models, one per runtime, to learn how fast this PC is.
@@ -817,7 +860,15 @@ fn apply_active_policy(app: &Arc<App>) {
     {
         // Don't swap the model out from under a dictation in progress.
         wait_for_idle(app);
-        if app.update_settings(|s| set_active(s, &to)).is_ok() {
+        // Only if the user hasn't picked something else meanwhile.
+        let mut switched = false;
+        let saved = app.update_settings(|s| {
+            if s.stt.active_variant == current {
+                set_active(s, &to);
+                switched = true;
+            }
+        });
+        if saved.is_ok() && switched {
             app.set_notice(notice);
             app.reload_engine();
         }

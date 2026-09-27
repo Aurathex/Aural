@@ -158,10 +158,10 @@ impl App {
                 Some((entry, backend)) if app.store.is_installed(&entry) => {
                     app.engine.mark_loading(&entry.id);
                     app.broadcast();
-                    app.engine.load(&entry, backend, &app.store);
+                    let failed = app.engine.load(&entry, backend, &app.store);
                     // A graphics card that can't start the model must not leave the user
                     // without dictation: fall back to the processor and say so.
-                    if let EngineStatus::Error { message, .. } = app.engine.status() {
+                    if let Some(message) = failed {
                         if backend != aural_engines::Backend::Cpu {
                             let variant = entry.variant_id(backend);
                             crate::hwtest::after_load_failure(&app, &variant, &message);

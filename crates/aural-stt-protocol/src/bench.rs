@@ -80,7 +80,7 @@ pub fn stability(failure: Option<&str>, spread: f64) -> Stability {
             reason: reason.to_owned(),
         },
         None if spread > MAX_SPREAD => Stability::Unstable {
-            reason: "its speed varies too much from one sentence to the next".into(),
+            reason: "varies too much in speed from one sentence to the next".into(),
         },
         None => Stability::Stable,
     }
@@ -250,7 +250,8 @@ mod tests {
         let Stability::Unstable { reason } = stability(None, 6.0) else {
             panic!()
         };
-        assert!(reason.contains("speed varies"), "{reason}");
+        // Reads right after "it": "…won't work well on this PC: it varies too much…".
+        assert!(reason.starts_with("varies too much in speed"), "{reason}");
     }
 
     #[test]

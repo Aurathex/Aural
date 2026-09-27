@@ -120,8 +120,9 @@ impl EngineHost {
 
     /// Start a fresh worker for `entry` on `backend` and load it (blocking; call off the
     /// UI thread). The client lock is only taken briefly to swap workers, never during
-    /// the load.
-    pub fn load(&self, entry: &ModelEntry, backend: Backend, store: &ModelStore) {
+    /// the load. Returns this load's error message when it failed and is still the latest
+    /// load (so a caller never blames this variant for a newer load's failure).
+    pub fn load(&self, entry: &ModelEntry, backend: Backend, store: &ModelStore) -> Option<String> {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.stop_current();
         self.set_status(EngineStatus::Loading {
@@ -146,7 +147,7 @@ impl EngineHost {
             Ok(c)
         });
         if self.generation.load(Ordering::SeqCst) != generation {
-            return; // superseded by a newer load or an unload; drop this worker
+            return None; // superseded by a newer load or an unload; drop this worker
         }
         match result {
             Ok(client) => {
@@ -158,11 +159,16 @@ impl EngineHost {
                 let mut guard = self.client.lock().unwrap_or_else(|p| p.into_inner());
                 *guard = Some(client);
             }
-            Err(e) => self.set_status(EngineStatus::Error {
-                model: entry.id.clone(),
-                message: e.to_string(),
-            }),
+            Err(e) => {
+                let message = e.to_string();
+                self.set_status(EngineStatus::Error {
+                    model: entry.id.clone(),
+                    message: message.clone(),
+                });
+                return Some(message);
+            }
         }
+        None
     }
 
     pub fn transcribe(&self, pcm: &[f32]) -> Result<String, ErrorCode> {

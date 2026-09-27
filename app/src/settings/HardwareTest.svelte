@@ -81,7 +81,10 @@
     </div>
   {/if}
   {#if background}<p class="live" aria-live="polite">{background}</p>{/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}
+    <p class="error" role="alert">The check couldn't start. Please try again.</p>
+    <details class="tech"><summary>Technical details</summary>{error}</details>
+  {/if}
 </section>
 
 <style>
