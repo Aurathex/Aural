@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "qwen2.5-0.5b-instruct-q4",
+      "name": "Writing helper (small)",
+      "description": "Tidies punctuation, capitals and hesitations on this PC. About 1 second per sentence on a modern processor.",
+      "license": {
+        "id": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "attribution": "Qwen2.5-0.5B-Instruct by the Qwen team, Alibaba Cloud (https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct), Apache License 2.0. 4-bit ONNX export by onnx-community (https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct)."
+      },
+      "source": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct",
+      "min_ram_mb": 1536,
+      "files": [
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/cc5cc01a65cc3ff17bdb73a7de33d879f62599b0/config.json",
+          "sha256": "777e01f0fbb3346eb229cb6fb278ed6533c1e4dcb9ebf4bed0f6e94ef17fa1b5",
+          "size": 678
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/cc5cc01a65cc3ff17bdb73a7de33d879f62599b0/tokenizer.json",
+          "sha256": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf",
+          "size": 7031673
+        },
+        {
+          "name": "model.onnx",
+          "url": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/cc5cc01a65cc3ff17bdb73a7de33d879f62599b0/onnx/model_q4.onnx",
+          "sha256": "09235a3b1c135cd04ef570e5053b5c079e028078a2cc5f76ba6a251e91bf3296",
+          "size": 786156820
+        }
+      ]
+    }
+  ]
+}

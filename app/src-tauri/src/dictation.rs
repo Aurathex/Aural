@@ -60,6 +60,11 @@ pub trait DictationIo {
     fn live_finish(&mut self) -> Option<Result<String, ErrorCode>>;
     /// Drop the live-text stream, if any, without using it.
     fn live_cancel(&mut self);
+    /// The text to type for what the model wrote: dictionary, cleanup, app settings.
+    fn polish(&mut self, raw: &str) -> String;
+    /// A finished dictation, for history and statistics (`inserted`: typed into the
+    /// app, rather than left on the clipboard).
+    fn record(&mut self, raw: &str, text: &str, inserted: bool);
 }
 
 pub struct Dictation<I: DictationIo> {
@@ -68,6 +73,8 @@ pub struct Dictation<I: DictationIo> {
     mode: HotkeyMode,
     session: u64,
     release_hwnd: isize,
+    /// What the speech model wrote for the text being inserted.
+    raw: String,
 }
 
 fn insert_failure(reason: Reason) -> ErrorCode {
@@ -86,6 +93,7 @@ impl<I: DictationIo> Dictation<I> {
             mode,
             session: 0,
             release_hwnd: 0,
+            raw: String::new(),
         }
     }
 
@@ -158,15 +166,27 @@ impl<I: DictationIo> Dictation<I> {
                         _ => None,
                     };
                     match live.map_or_else(|| self.io.transcribe(speech), Ok) {
-                        Ok(text) if text.trim().is_empty() => Event::TranscriptEmpty,
-                        Ok(text) => Event::Transcript(text),
+                        Ok(raw) if raw.trim().is_empty() => Event::TranscriptEmpty,
+                        Ok(raw) => {
+                            let text = self.io.polish(&raw);
+                            self.raw = raw;
+                            if text.trim().is_empty() {
+                                Event::TranscriptEmpty
+                            } else {
+                                Event::Transcript(text)
+                            }
+                        }
                         Err(code) => Event::Failed(code),
                     }
                 };
                 queue.push_back(event);
             }
             Effect::Insert(text) => {
-                let event = match self.io.insert(&text, self.release_hwnd) {
+                let outcome = self.io.insert(&text, self.release_hwnd);
+                let raw = std::mem::take(&mut self.raw);
+                self.io
+                    .record(&raw, &text, outcome == InsertOutcome::Inserted);
+                let event = match outcome {
                     InsertOutcome::Inserted => Event::Inserted,
                     InsertOutcome::CopiedOnly(reason) => {
                         Event::InsertFailed(insert_failure(reason))
@@ -226,6 +246,9 @@ mod tests {
         last: Option<String>,
         /// What the live stream ends with (None: no live stream this time).
         live: Option<Result<String, ErrorCode>>,
+        /// polish() output for a given input (default: unchanged).
+        polished: Option<String>,
+        recorded: Vec<(String, String, bool)>,
     }
 
     impl DictationIo for Fake {
@@ -278,6 +301,13 @@ mod tests {
                 self.log.push("live cancel".into());
             }
         }
+        fn polish(&mut self, raw: &str) -> String {
+            self.log.push(format!("polish {raw:?}"));
+            self.polished.clone().unwrap_or_else(|| raw.to_owned())
+        }
+        fn record(&mut self, raw: &str, text: &str, inserted: bool) {
+            self.recorded.push((raw.into(), text.into(), inserted));
+        }
     }
 
     fn speech() -> Vec<f32> {
@@ -320,6 +350,7 @@ mod tests {
                 "start",
                 "stop",
                 "transcribe 16000",
+                "polish \"Hello world.\"",
                 "insert \"Hello world.\" into 77"
             ]
         );
@@ -558,6 +589,49 @@ mod tests {
         assert!(d.io.log.contains(&"live cancel".to_string()));
         assert!(!d.io.log.iter().any(|l| l.starts_with("transcribe")));
         assert!(inserts(&d.io).is_empty());
+    }
+
+    #[test]
+    fn the_polished_text_is_inserted_and_both_versions_are_recorded() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.transcript = Some(Ok("um hello aura thex".into()));
+        d.io.polished = Some("Hello Aurathex".into());
+        hold(&mut d, 1200);
+        assert_eq!(inserts(&d.io), vec!["insert \"Hello Aurathex\" into 77"]);
+        assert_eq!(
+            d.io.recorded,
+            vec![("um hello aura thex".into(), "Hello Aurathex".into(), true)]
+        );
+    }
+
+    #[test]
+    fn live_text_is_polished_like_any_other_text() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.live = Some(Ok("um live".into()));
+        d.io.polished = Some("Live".into());
+        hold(&mut d, 1200);
+        assert!(d.io.log.contains(&"polish \"um live\"".to_string()));
+        assert_eq!(inserts(&d.io), vec!["insert \"Live\" into 77"]);
+    }
+
+    #[test]
+    fn text_that_cleanup_empties_inserts_nothing_and_records_nothing() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.transcript = Some(Ok("um uh".into()));
+        d.io.polished = Some(String::new());
+        hold(&mut d, 1200);
+        assert!(inserts(&d.io).is_empty());
+        assert!(d.io.recorded.is_empty());
+        assert_eq!(states(&d.io).last(), Some(&PillState::Hidden));
+    }
+
+    #[test]
+    fn text_left_on_the_clipboard_is_still_recorded_as_not_inserted() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.transcript = Some(Ok("keep".into()));
+        d.io.insert_result = Some(InsertOutcome::CopiedOnly(Reason::FocusChanged));
+        hold(&mut d, 1200);
+        assert_eq!(d.io.recorded, vec![("keep".into(), "keep".into(), false)]);
     }
 
     #[test]

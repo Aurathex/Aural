@@ -133,7 +133,7 @@ pub fn download_with(
     Ok(())
 }
 
-fn fetch_file(
+pub(crate) fn fetch_file(
     file: &ModelFile,
     dir: &Path,
     cancel: &AtomicBool,

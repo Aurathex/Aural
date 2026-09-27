@@ -78,12 +78,17 @@ pub fn save_settings(app: State<'_, Arc<App>>, settings: Settings) -> Res<AppSta
     }
     // The model is chosen with use_variant (or switched automatically); a settings save
     // from the window may carry an older choice, so it never changes the model.
+    let keep_days = settings.history.keep_days;
     app.update_settings(|s| {
         let stt = s.stt.clone();
         *s = settings;
         s.stt = stt;
     })
     .map_err(err)?;
+    if old.history.keep_days != keep_days {
+        let _ = lock(&app.history).prune(keep_days, crate::text::now());
+    }
+    crate::text::reload_text_engine(&app);
     Ok(app.snapshot())
 }
 
@@ -324,4 +329,182 @@ pub fn delete_aural(app: State<'_, Arc<App>>, confirmation: String) -> Res<()> {
 #[tauri::command]
 pub fn quit(app: State<'_, Arc<App>>) {
     app.handle.exit(0);
+}
+
+// ---- Writing: dictionary, learning, AI cleanup model ----
+
+fn save_words(app: &App) -> Res<()> {
+    lock(&app.words)
+        .save(&app.paths.dictionary_file())
+        .map_err(err)
+}
+
+/// Replace the dictionary (the settings window edits the whole list).
+#[tauri::command]
+pub fn set_dictionary(
+    app: State<'_, Arc<App>>,
+    entries: Vec<aural_text::dictionary::Entry>,
+) -> Res<AppStateDto> {
+    let entries = entries
+        .into_iter()
+        .filter(|e| !e.write.trim().is_empty())
+        .map(|e| aural_text::dictionary::Entry {
+            write: e.write.trim().to_owned(),
+            heard: e
+                .heard
+                .into_iter()
+                .map(|h| h.trim().to_owned())
+                .filter(|h| !h.is_empty())
+                .collect(),
+        })
+        .collect();
+    lock(&app.words).entries = entries;
+    save_words(&app)?;
+    Ok(app.snapshot())
+}
+
+#[tauri::command]
+pub fn accept_suggestion(app: State<'_, Arc<App>>, index: usize) -> Res<AppStateDto> {
+    {
+        let mut w = lock(&app.words);
+        let aural_text::Words { entries, learned } = &mut *w;
+        learned.accept(index, entries);
+    }
+    save_words(&app)?;
+    Ok(app.snapshot())
+}
+
+#[tauri::command]
+pub fn dismiss_suggestion(app: State<'_, Arc<App>>, index: usize) -> Res<AppStateDto> {
+    lock(&app.words).learned.dismiss(index);
+    save_words(&app)?;
+    Ok(app.snapshot())
+}
+
+/// Forget everything learned from corrections (the dictionary itself stays).
+#[tauri::command]
+pub fn reset_learning(app: State<'_, Arc<App>>) -> Res<AppStateDto> {
+    lock(&app.words).learned = Default::default();
+    save_words(&app)?;
+    Ok(app.snapshot())
+}
+
+#[tauri::command]
+pub fn download_text_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
+    let entry = app
+        .text_catalog
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| format!("unknown text model {id}"))?;
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut downloads = lock(&app.text_downloads);
+        if downloads.contains_key(&id) {
+            return Ok(app.snapshot());
+        }
+        downloads.insert(id.clone(), (0, entry.total_size()));
+        lock(&app.cancels).insert(id.clone(), cancel.clone());
+    }
+    let app2 = Arc::clone(&app);
+    std::thread::spawn(move || {
+        let root = app2.paths.text_models_dir();
+        let mut last = Instant::now();
+        let result = aural_models::text::download(&entry, &root, &cancel, &mut |p| {
+            lock(&app2.text_downloads).insert(entry.id.clone(), (p.downloaded, p.total));
+            if last.elapsed().as_millis() >= 200 || p.downloaded == p.total {
+                last = Instant::now();
+                let _ = app2.handle.emit_to(
+                    "main",
+                    "text-model-progress",
+                    ProgressEvent {
+                        id: entry.id.clone(),
+                        downloaded: p.downloaded,
+                        total: p.total,
+                    },
+                );
+            }
+        });
+        lock(&app2.text_downloads).remove(&entry.id);
+        lock(&app2.cancels).remove(&entry.id);
+        match result {
+            Ok(()) => {
+                if app2.settings().text.ai_model.is_none() {
+                    let _ = app2.update_settings(|s| s.text.ai_model = Some(entry.id.clone()));
+                }
+                crate::text::reload_text_engine(&app2);
+            }
+            Err(DownloadError::Cancelled) => {}
+            Err(_) => app2.set_notice(format!(
+                "{} couldn't be downloaded. Check your internet connection and free disk space, then try again.",
+                entry.name
+            )),
+        }
+        app2.broadcast();
+    });
+    Ok(app.snapshot())
+}
+
+#[tauri::command]
+pub fn remove_text_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
+    let entry = app
+        .text_catalog
+        .get(&id)
+        .ok_or_else(|| format!("unknown text model {id}"))?;
+    if lock(&app.text_downloads).contains_key(&id) {
+        return Err("Cancel the download before removing the model.".into());
+    }
+    if app.text_engine.loaded_model().as_deref() == Some(id.as_str()) {
+        app.text_engine.unload();
+    }
+    aural_models::text::remove(&app.paths.text_models_dir(), entry).map_err(err)?;
+    Ok(app.snapshot())
+}
+
+// ---- History and statistics ----
+
+#[tauri::command]
+pub fn history_search(
+    app: State<'_, Arc<App>>,
+    query: String,
+    limit: usize,
+) -> Vec<aural_text::history::Entry> {
+    lock(&app.history)
+        .search(&query, limit.min(500))
+        .into_iter()
+        .cloned()
+        .collect()
+}
+
+#[tauri::command]
+pub fn history_delete(app: State<'_, Arc<App>>, id: u64) -> Res<()> {
+    lock(&app.history).delete(id).map(|_| ()).map_err(err)
+}
+
+#[tauri::command]
+pub fn history_clear(app: State<'_, Arc<App>>) -> Res<()> {
+    lock(&app.history).clear().map_err(err)
+}
+
+/// Your fix of a dictation: kept with it, and compared with what Aural wrote so small
+/// replacements can be suggested for your dictionary (nothing changes on its own).
+#[tauri::command]
+pub fn history_correct(app: State<'_, Arc<App>>, id: u64, text: String) -> Res<AppStateDto> {
+    let before = lock(&app.history).correct(id, &text).map_err(err)?;
+    if let Some(before) = before {
+        lock(&app.words).learned.observe(&before, text.trim());
+        save_words(&app)?;
+    }
+    Ok(app.snapshot())
+}
+
+#[tauri::command]
+pub fn stats_summary(app: State<'_, Arc<App>>) -> aural_text::stats::Summary {
+    lock(&app.stats).summary(crate::text::now())
+}
+
+#[tauri::command]
+pub fn stats_reset(app: State<'_, Arc<App>>) -> Res<()> {
+    let mut s = lock(&app.stats);
+    *s = Default::default();
+    s.save(&app.paths.stats_file()).map_err(err)
 }

@@ -26,6 +26,8 @@ pub struct AppIo {
     live: Option<LiveFeed>,
     /// This session's pill has a live-text caption (until the pill hides).
     caption: bool,
+    /// Facts about the current dictation, for history and statistics.
+    session: crate::text::Session,
 }
 
 /// The speech engine as the live-text feeder sees it.
@@ -55,6 +57,7 @@ impl AppIo {
             start_cue_played: false,
             live: None,
             caption: false,
+            session: Default::default(),
         }
     }
 
@@ -88,6 +91,11 @@ impl AppIo {
 
     /// Start live text for a new recording when it's on and the model keeps up.
     fn start_live(&mut self) -> Option<Sender<Vec<f32>>> {
+        // The app in front can turn live text off (its profile).
+        let front = insert::foreground_target().process;
+        if !aural_text::profile::resolve(&self.app.settings(), &front).live {
+            return None;
+        }
         if !matches!(
             crate::live::for_app(&self.app),
             LiveStatus::Native | LiveStatus::Phrases
@@ -126,6 +134,10 @@ impl DictationIo for AppIo {
         let device = self.app.settings().audio.device;
         let live = self.start_live();
         self.caption = live.is_some();
+        self.session = crate::text::Session {
+            live: live.is_some(),
+            ..Default::default()
+        };
         // A chosen microphone that was unplugged falls back to the Windows default.
         let opened = match self.open(device.as_deref(), live.clone()) {
             Err(CaptureError::DeviceNotFound(_)) => self.open(None, live.clone()),
@@ -148,6 +160,9 @@ impl DictationIo for AppIo {
 
     fn stop_capture(&mut self) -> Vec<f32> {
         let mut pcm = self.capture.take().map(|c| c.stop()).unwrap_or_default();
+        self.session.audio_ms = pcm.len() as u64 / 16;
+        // The text goes to the app in front when the user stops (its profile applies).
+        self.session.app = insert::foreground_target().process;
         if std::mem::take(&mut self.start_cue_played) {
             crate::sounds::mute_start_cue(&mut pcm);
         }
@@ -230,6 +245,22 @@ impl DictationIo for AppIo {
         if let Some(feed) = self.live.take() {
             feed.cancel();
         }
+    }
+
+    fn polish(&mut self, raw: &str) -> String {
+        let settings = self.app.settings();
+        let words = lock(&self.app.words).clone();
+        let engine = &self.app.text_engine;
+        let p = crate::text::polish(&settings, &words, &self.session.app, raw, |t| {
+            engine.rewrite(t)
+        });
+        self.session.cleaned = p.cleaned;
+        self.session.history = p.effective.history;
+        p.text
+    }
+
+    fn record(&mut self, raw: &str, text: &str, _inserted: bool) {
+        crate::text::record(&self.app, raw, text, &self.session);
     }
 
     fn schedule(&mut self, after_ms: u64, input: Input) {

@@ -61,6 +61,15 @@ impl History {
         })
     }
 
+    /// A history with nothing in it yet (used when the file couldn't be read).
+    pub fn empty(path: &Path) -> Self {
+        Self {
+            path: path.to_owned(),
+            entries: Vec::new(),
+            next_id: 1,
+        }
+    }
+
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }

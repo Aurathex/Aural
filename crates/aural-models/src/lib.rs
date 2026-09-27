@@ -11,6 +11,7 @@ pub mod results;
 pub mod store;
 #[cfg(test)]
 mod test_fixtures;
+pub mod text;
 
 pub use aural_stt_protocol::bench::{Stability, VariantResult};
 pub use catalog::{Catalog, ModelEntry, ModelFile};

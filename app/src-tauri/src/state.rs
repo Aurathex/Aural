@@ -43,6 +43,13 @@ pub struct App {
     /// Latest pill state, so a delayed hide never hides a newer session.
     pub pill_hidden: AtomicBool,
     pub hwtest: HwTest,
+    /// Your dictionary and learned suggestions (dictionary.json).
+    pub words: Mutex<aural_text::Words>,
+    pub history: Mutex<aural_text::history::History>,
+    pub stats: Mutex<aural_text::stats::Stats>,
+    pub text_catalog: aural_models::text::TextCatalog,
+    pub text_engine: crate::text_engine::TextHost,
+    pub text_downloads: Mutex<HashMap<String, (u64, u64)>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -65,6 +72,27 @@ pub struct AppStateDto {
     pub hardware_test: HwTestStatus,
     /// Whether words show while you speak with the model in use.
     pub live: crate::live::LiveStatus,
+    /// Dictionary and learned suggestions.
+    pub words: aural_text::Words,
+    pub text_models: Vec<TextModelStatus>,
+    pub text_engine: crate::text_engine::TextStatus,
+    /// Apps you have dictated into (for per-app settings), most used first.
+    pub recent_apps: Vec<String>,
+    pub history_count: usize,
+}
+
+#[derive(Clone, Serialize)]
+pub struct TextModelStatus {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub size_bytes: u64,
+    pub min_ram_mb: u64,
+    pub license_id: String,
+    pub attribution: String,
+    /// `available`, `downloading` or `installed`.
+    pub state: &'static str,
+    pub downloaded: u64,
 }
 
 pub fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -132,8 +160,59 @@ impl App {
             labels: eval.labels,
             hardware_test: crate::hwtest::status(self),
             live: crate::live::for_app(self),
+            words: lock(&self.words).clone(),
+            text_models: self.text_models(),
+            text_engine: self.text_engine.status(),
+            recent_apps: self.recent_apps(),
+            history_count: lock(&self.history).entries().len(),
             settings: s,
         }
+    }
+
+    fn text_models(&self) -> Vec<TextModelStatus> {
+        let downloads = lock(&self.text_downloads).clone();
+        let root = self.paths.text_models_dir();
+        self.text_catalog
+            .models
+            .iter()
+            .map(|m| {
+                let dl = downloads.get(&m.id);
+                TextModelStatus {
+                    id: m.id.clone(),
+                    name: m.name.clone(),
+                    description: m.description.clone(),
+                    size_bytes: m.total_size(),
+                    min_ram_mb: m.min_ram_mb,
+                    license_id: m.license.id.clone(),
+                    attribution: m.license.attribution.clone(),
+                    state: if dl.is_some() {
+                        "downloading"
+                    } else if aural_models::text::is_installed(&root, m) {
+                        "installed"
+                    } else {
+                        "available"
+                    },
+                    downloaded: dl.map_or(0, |d| d.0),
+                }
+            })
+            .collect()
+    }
+
+    /// Apps seen in statistics and history, plus those with settings; most used first.
+    fn recent_apps(&self) -> Vec<String> {
+        let mut apps: Vec<(String, u64)> = lock(&self.stats)
+            .apps
+            .iter()
+            .filter(|(a, _)| a.as_str() != "unknown")
+            .map(|(a, n)| (a.clone(), *n))
+            .collect();
+        for e in lock(&self.history).entries() {
+            if !e.app.is_empty() && !apps.iter().any(|(a, _)| a.eq_ignore_ascii_case(&e.app)) {
+                apps.push((e.app.to_lowercase(), 0));
+            }
+        }
+        apps.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        apps.into_iter().map(|(a, _)| a).take(30).collect()
     }
 
     pub fn broadcast(&self) {

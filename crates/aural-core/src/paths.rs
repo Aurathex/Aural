@@ -89,6 +89,26 @@ impl AppPaths {
     pub fn settings_file(&self) -> PathBuf {
         self.config_dir.join("settings.json")
     }
+
+    /// Downloaded text models for AI cleanup.
+    pub fn text_models_dir(&self) -> PathBuf {
+        self.data_dir.join("text-models")
+    }
+
+    /// Your dictionary and what Aural learned from your corrections.
+    pub fn dictionary_file(&self) -> PathBuf {
+        self.config_dir.join("dictionary.json")
+    }
+
+    /// Dictation history (text only).
+    pub fn history_file(&self) -> PathBuf {
+        self.data_dir.join("history.jsonl")
+    }
+
+    /// Dictation statistics (counts only).
+    pub fn stats_file(&self) -> PathBuf {
+        self.data_dir.join("stats.json")
+    }
 }
 
 #[cfg(test)]

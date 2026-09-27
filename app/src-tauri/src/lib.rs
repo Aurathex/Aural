@@ -10,6 +10,8 @@ pub mod pill;
 pub mod shell;
 pub mod sounds;
 pub mod state;
+pub mod text;
+pub mod text_engine;
 pub mod tray;
 
 use crate::dictation::{Dictation, Input};
@@ -70,6 +72,16 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         notice.clone_from(&results.notice);
     }
 
+    let paths_words = paths.dictionary_file();
+    let paths_stats = paths.stats_file();
+    // History keeps only as many days as chosen; older entries go at every start.
+    let history = {
+        let file = paths.history_file();
+        let mut h = aural_text::history::History::load(&file)
+            .unwrap_or_else(|_| aural_text::history::History::empty(&file));
+        let _ = h.prune(s.history.keep_days, crate::text::now());
+        h
+    };
     let app = Arc::new(App {
         handle: handle.clone(),
         store,
@@ -88,6 +100,12 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         tray_paste: Mutex::new(None),
         pill_hidden: AtomicBool::new(true),
         hwtest: hwtest::HwTest::new(results),
+        words: Mutex::new(aural_text::Words::load(&paths_words).unwrap_or_default()),
+        history: Mutex::new(history),
+        stats: Mutex::new(aural_text::stats::Stats::load(&paths_stats).unwrap_or_default()),
+        text_catalog: aural_models::text::TextCatalog::builtin(),
+        text_engine: Default::default(),
+        text_downloads: Mutex::new(HashMap::new()),
     });
     handle.manage(app.clone());
 
@@ -146,6 +164,7 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
     }
 
     app.reload_engine();
+    text::reload_text_engine(&app);
     hwtest::spawn_runner(&app);
 
     let autostarted = std::env::args().any(|a| a == "--autostart");
@@ -202,6 +221,18 @@ pub fn run() {
             commands::open_mic_privacy,
             commands::open_data_folder,
             commands::delete_aural,
+            commands::set_dictionary,
+            commands::accept_suggestion,
+            commands::dismiss_suggestion,
+            commands::reset_learning,
+            commands::download_text_model,
+            commands::remove_text_model,
+            commands::history_search,
+            commands::history_delete,
+            commands::history_clear,
+            commands::history_correct,
+            commands::stats_summary,
+            commands::stats_reset,
             commands::quit,
         ])
         .run(tauri::generate_context!())

@@ -344,6 +344,7 @@ dependencies = [
  "aural-models",
  "aural-platform",
  "aural-stt-protocol",
+ "aural-text",
  "serde",
  "serde_json",
  "tauri",
