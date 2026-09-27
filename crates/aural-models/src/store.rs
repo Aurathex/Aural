@@ -126,6 +126,29 @@ pub struct ModelStatus {
     pub attribution: String,
 }
 
+/// The model to use: the chosen one if it is installed, otherwise the recommended one
+/// if installed, otherwise any installed model, otherwise none. Used at startup so a
+/// lost or stale choice doesn't hide a model that is already on disk.
+pub fn usable_model(
+    catalog: &Catalog,
+    store: &ModelStore,
+    chosen: Option<&str>,
+    hw: &HardwareProfile,
+) -> Option<String> {
+    let installed = |id: &str| catalog.get(id).is_some_and(|m| store.is_installed(m));
+    if let Some(c) = chosen.filter(|c| installed(c)) {
+        return Some(c.to_owned());
+    }
+    if let Some(r) = recommend(catalog, hw).filter(|r| installed(r)) {
+        return Some(r.to_owned());
+    }
+    catalog
+        .models
+        .iter()
+        .find(|m| store.is_installed(m))
+        .map(|m| m.id.clone())
+}
+
 /// Status of every catalog model for the Models page.
 pub fn statuses(
     catalog: &Catalog,
@@ -196,6 +219,61 @@ mod tests {
         logical_cores: 16,
         avx2: true,
     };
+
+    #[test]
+    fn the_chosen_model_is_kept_when_it_is_installed() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = catalog();
+        fake_install(&store, c.get("whisper-base.en-q8").unwrap());
+        fake_install(&store, c.get("parakeet-tdt-0.6b-v2-int8").unwrap());
+        assert_eq!(
+            usable_model(&c, &store, Some("whisper-base.en-q8"), &HW).as_deref(),
+            Some("whisper-base.en-q8")
+        );
+    }
+
+    #[test]
+    fn an_installed_model_is_used_when_the_choice_was_lost() {
+        // Settings reset (or the chosen model deleted by hand) while a model is on disk:
+        // use it instead of telling the user to download one.
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = catalog();
+        fake_install(&store, c.get("whisper-base.en-q8").unwrap());
+        assert_eq!(
+            usable_model(&c, &store, None, &HW).as_deref(),
+            Some("whisper-base.en-q8")
+        );
+        assert_eq!(
+            usable_model(&c, &store, Some("parakeet-tdt-0.6b-v2-int8"), &HW).as_deref(),
+            Some("whisper-base.en-q8"),
+            "chosen model no longer installed"
+        );
+    }
+
+    #[test]
+    fn the_recommended_model_wins_among_installed_ones() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        let c = catalog();
+        for m in &c.models {
+            fake_install(&store, m);
+        }
+        let recommended = crate::recommend::recommend(&c, &HW).map(str::to_owned);
+        assert!(recommended.is_some());
+        assert_eq!(usable_model(&c, &store, None, &HW), recommended);
+    }
+
+    #[test]
+    fn nothing_installed_means_no_model() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(root.path());
+        assert_eq!(
+            usable_model(&catalog(), &store, Some("whisper-base.en-q8"), &HW),
+            None
+        );
+    }
 
     #[test]
     fn a_model_that_is_downloading_cannot_be_removed() {

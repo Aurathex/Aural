@@ -41,12 +41,24 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         }
     };
 
+    // A lost or stale model choice (settings reset, model deleted by hand) must not hide a
+    // model that is already installed.
+    let store = ModelStore::new(&paths.models_dir());
+    let catalog = Catalog::builtin();
+    let hw = HardwareProfile::detect();
+    let usable =
+        aural_models::store::usable_model(&catalog, &store, s.stt.active_model.as_deref(), &hw);
+    if usable.is_some() && usable != s.stt.active_model {
+        s.stt.active_model = usable;
+        let _ = settings::save(&paths.settings_file(), &s);
+    }
+
     let app = Arc::new(App {
         handle: handle.clone(),
-        store: ModelStore::new(&paths.models_dir()),
+        store,
         paths,
-        catalog: Catalog::builtin(),
-        hw: HardwareProfile::detect(),
+        catalog,
+        hw,
         settings: Mutex::new(s.clone()),
         notice: Mutex::new(notice),
         downloads: Mutex::new(HashMap::new()),
