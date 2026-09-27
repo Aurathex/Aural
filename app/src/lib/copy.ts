@@ -213,3 +213,41 @@ export function liveText(status: import("./types").LiveStatus): string {
       return "The model you use is too slow on this PC to show words while you speak. Choose a faster model on the Models page to use this.";
   }
 }
+
+/** What each cleanup choice does. */
+export function cleanupText(mode: import("./types").CleanupMode): string {
+  switch (mode) {
+    case "off":
+      return "Types exactly what the speech model heard, with your dictionary applied.";
+    case "light":
+      return "Removes \u201cum\u201d and \u201cuh\u201d, fixes spacing and the first capital letter. Your words stay the same.";
+    case "ai":
+      return "A writing helper on this PC fixes punctuation, capitals and small slips. It is checked so it can't change numbers, links, code or what you meant; if it tries, the light tidy-up is used instead.";
+  }
+}
+
+/** History retention choices, in days (0 = keep until deleted). */
+export const KEEP_OPTIONS = [7, 30, 365, 0] as const;
+
+export function keepText(days: number): string {
+  if (days === 0) return "Until I delete it";
+  if (days === 365) return "1 year";
+  return `${days} days`;
+}
+
+/** An app's program file as people know it. */
+export function appLabel(app: string): string {
+  const name = app.split(/[\\/]/).pop() ?? "";
+  return name.replace(/\.exe$/i, "") || "Unknown app";
+}
+
+/** Time spent speaking, e.g. "2 min 5 s". */
+export function spokenTime(ms: number): string {
+  const s = Math.round(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h} h ${m} min`;
+  if (m > 0) return r ? `${m} min ${r} s` : `${m} min`;
+  return `${r} s`;
+}

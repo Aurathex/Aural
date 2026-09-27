@@ -6,12 +6,16 @@
 import type {
   AppState,
   Backend,
+  DictionaryEntry,
   Hardware,
+  HistoryEntry,
   HotkeyCheck,
   HwStep,
   Label,
   ModelStatus,
   Settings,
+  StatsSummary,
+  Totals,
   VariantResult,
 } from "./types";
 
@@ -34,6 +38,9 @@ const settings: Settings = {
   startup: { launch_at_login: false },
   ui: { pill_position: "bottom", sounds: true },
   live: { enabled: true },
+  text: { cleanup: "light", dictionary: true, ai_model: null },
+  apps: [{ app: "windowsterminal.exe", cleanup: "off", dictionary: null, live: null, history: null }],
+  history: { enabled: true, keep_days: 30, stats: true },
 };
 
 function model(
@@ -208,6 +215,49 @@ const state: AppState = {
   labels: fresh ? {} : labels,
   hardware_test: { running: false, step: null, done: 0, total: 0, tested: !fresh, stale: false, test_models_installed: !fresh },
   live: "phrases",
+  words: {
+    entries: [
+      { write: "Aurathex", heard: ["aura thex", "or a thex"] },
+      { write: "Kubernetes", heard: [] },
+    ],
+    learned: { suggestions: [{ heard: "kate", write: "Cate", count: 2 }], dismissed: [] },
+  },
+  text_models: [
+    {
+      id: "qwen2.5-0.5b-instruct-q4",
+      name: "Writing helper (small)",
+      description: "Tidies punctuation, capitals and hesitations on this PC. About 1 second per sentence on a modern processor.",
+      size_bytes: 793_189_171,
+      min_ram_mb: 1536,
+      license_id: "Apache-2.0",
+      attribution: "Qwen2.5-0.5B-Instruct by the Qwen team, Alibaba Cloud, Apache License 2.0.",
+      state: "available",
+      downloaded: 0,
+    },
+  ],
+  text_engine: { state: "off" },
+  recent_apps: ["slack.exe", "outlook.exe", "code.exe", "windowsterminal.exe"],
+  history_count: 3,
+};
+
+const now = Math.floor(Date.now() / 1000);
+const history: HistoryEntry[] = [
+  { id: 3, at: now - 120, text: "Can you send me the Q3 report by Tuesday?", app: "outlook.exe", variant: "parakeet-tdt-0.6b-v2-int8@cpu", audio_ms: 3200, words: 9 },
+  { id: 2, at: now - 3600, text: "Deploy is done, checking the logs now.", raw: "um deploy is done checking the logs now", app: "slack.exe", variant: "parakeet-tdt-0.6b-v2-int8@cpu", audio_ms: 2600, words: 7 },
+  { id: 1, at: now - 86400 * 2, text: "Email or a thex about the website.", corrected: "Email Aurathex about the website.", app: "outlook.exe", variant: "parakeet-tdt-0.6b-v2-int8@cpu", audio_ms: 2900, words: 6 },
+];
+
+const day = Math.floor(now / 86400);
+const summary: StatsSummary = {
+  all_time: { dictations: 214, words: 3890, audio_ms: 1_512_000 },
+  last_7_days: { dictations: 41, words: 702, audio_ms: 280_000 },
+  today: { dictations: 6, words: 88, audio_ms: 36_000 },
+  words_per_minute: 154.4,
+  recent: Array.from({ length: 14 }, (_, i) => [day - 13 + i, { dictations: (i * 7) % 11, words: ((i * 7) % 11) * 17, audio_ms: 0 }] as [number, Totals]),
+  variants: [["parakeet-tdt-0.6b-v2-int8@cpu", 190], ["moonshine-streaming-small@cpu", 24]],
+  apps: [["slack.exe", 102], ["outlook.exe", 71], ["code.exe", 41]],
+  live: 180,
+  cleaned: 97,
 };
 
 let levelTimer: number | undefined;
@@ -246,7 +296,9 @@ export const demo = {
     return () => handlers.get(event)?.delete(handler);
   },
 
-  async call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  async call<T>(cmd: string, raw?: Record<string, unknown>): Promise<T> {
+    // Like Tauri, pass plain data (the UI may hand over reactive proxies).
+    const args = raw === undefined ? undefined : (JSON.parse(JSON.stringify(raw)) as Record<string, unknown>);
     switch (cmd) {
       case "get_state":
       case "dismiss_notice":
@@ -322,6 +374,65 @@ export const demo = {
       case "mic_test_stop":
         window.clearInterval(levelTimer);
         return undefined as T;
+      case "history_search": {
+        const q = String(args?.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+        return history.filter((e) => q.every((w) => `${e.text} ${e.corrected ?? ""} ${e.app}`.toLowerCase().includes(w))) as T;
+      }
+      case "history_delete": {
+        const i = history.findIndex((e) => e.id === args?.id);
+        if (i >= 0) history.splice(i, 1);
+        state.history_count = history.length;
+        return undefined as T;
+      }
+      case "history_clear":
+        history.length = 0;
+        state.history_count = 0;
+        return undefined as T;
+      case "history_correct": {
+        const e = history.find((x) => x.id === args?.id);
+        if (e) e.corrected = String(args?.text);
+        return structuredClone(state) as T;
+      }
+      case "stats_summary":
+        return structuredClone(summary) as T;
+      case "set_dictionary":
+        state.words.entries = args?.entries as DictionaryEntry[];
+        return structuredClone(state) as T;
+      case "accept_suggestion": {
+        const [s] = state.words.learned.suggestions.splice(Number(args?.index), 1);
+        if (s) state.words.entries.push({ write: s.write, heard: s.heard.toLowerCase() === s.write.toLowerCase() ? [] : [s.heard] });
+        return structuredClone(state) as T;
+      }
+      case "dismiss_suggestion":
+        state.words.learned.suggestions.splice(Number(args?.index), 1);
+        return structuredClone(state) as T;
+      case "reset_learning":
+        state.words.learned = { suggestions: [], dismissed: [] };
+        return structuredClone(state) as T;
+      case "download_text_model": {
+        const m = state.text_models.find((x) => x.id === args?.id);
+        if (m) {
+          m.state = "downloading";
+          const t = window.setInterval(() => {
+            m.downloaded = Math.min(m.size_bytes, m.downloaded + m.size_bytes / 20);
+            emit("text-model-progress", { id: m.id, downloaded: m.downloaded, total: m.size_bytes });
+            if (m.downloaded >= m.size_bytes) {
+              window.clearInterval(t);
+              m.state = "installed";
+              state.settings.text.ai_model = m.id;
+              state.text_engine = { state: "ready", model: m.id, label: "Qwen/Qwen2.5-0.5B-Instruct" };
+              emit("state-changed", structuredClone(state));
+            }
+          }, 120);
+        }
+        return structuredClone(state) as T;
+      }
+      case "remove_text_model": {
+        const m = state.text_models.find((x) => x.id === args?.id);
+        if (m) { m.state = "available"; m.downloaded = 0; }
+        state.text_engine = { state: "off" };
+        return structuredClone(state) as T;
+      }
       default:
         return undefined as T;
     }

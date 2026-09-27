@@ -11,6 +11,84 @@ export interface Settings {
   startup: { launch_at_login: boolean };
   ui: { pill_position: PillPosition; sounds: boolean };
   live: { enabled: boolean };
+  text: { cleanup: CleanupMode; dictionary: boolean; ai_model: string | null };
+  apps: AppProfile[];
+  history: { enabled: boolean; keep_days: number; stats: boolean };
+}
+
+export type CleanupMode = "off" | "light" | "ai";
+
+/** Settings for one app by program file; null follows the general settings. */
+export interface AppProfile {
+  app: string;
+  cleanup: CleanupMode | null;
+  dictionary: boolean | null;
+  live: boolean | null;
+  history: boolean | null;
+}
+
+export interface DictionaryEntry {
+  write: string;
+  heard: string[];
+}
+
+export interface Suggestion {
+  heard: string;
+  write: string;
+  count: number;
+}
+
+export interface Words {
+  entries: DictionaryEntry[];
+  learned: { suggestions: Suggestion[]; dismissed: [string, string][] };
+}
+
+export interface TextModelStatus {
+  id: string;
+  name: string;
+  description: string;
+  size_bytes: number;
+  min_ram_mb: number;
+  license_id: string;
+  attribution: string;
+  state: "available" | "downloading" | "installed";
+  downloaded: number;
+}
+
+export type TextEngineStatus =
+  | { state: "off" }
+  | { state: "loading"; model: string }
+  | { state: "ready"; model: string; label: string }
+  | { state: "error"; model: string; message: string };
+
+export interface HistoryEntry {
+  id: number;
+  at: number;
+  text: string;
+  raw?: string;
+  corrected?: string;
+  app: string;
+  variant: string;
+  audio_ms: number;
+  words: number;
+}
+
+export interface Totals {
+  dictations: number;
+  words: number;
+  audio_ms: number;
+}
+
+export interface StatsSummary {
+  all_time: Totals;
+  last_7_days: Totals;
+  today: Totals;
+  words_per_minute: number | null;
+  recent: [number, Totals][];
+  variants: [string, number][];
+  apps: [string, number][];
+  live: number;
+  cleaned: number;
 }
 
 /** Whether words show while you speak, for the model in use (app/src-tauri/src/live.rs). */
@@ -75,6 +153,11 @@ export interface AppState {
   labels: Record<string, Label[]>;
   hardware_test: HwTestStatus;
   live: LiveStatus;
+  words: Words;
+  text_models: TextModelStatus[];
+  text_engine: TextEngineStatus;
+  recent_apps: string[];
+  history_count: number;
 }
 
 export type Verdict =

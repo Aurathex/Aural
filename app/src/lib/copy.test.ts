@@ -200,3 +200,21 @@ describe("live text wording", () => {
     expect(liveText("too_slow")).toMatch(/slow/);
   });
 });
+
+describe("writing and history wording", () => {
+  it("explains each cleanup mode without jargon", async () => {
+    const { cleanupText, KEEP_OPTIONS, keepText, appLabel, spokenTime } = await import("./copy");
+    for (const m of ["off", "light", "ai"] as const) {
+      expect(hasJargon(cleanupText(m)), cleanupText(m)).toBe(false);
+    }
+    expect(cleanupText("ai")).toMatch(/this PC/);
+    expect(cleanupText("ai")).toMatch(/numbers/);
+    for (const d of KEEP_OPTIONS) expect(keepText(d).length).toBeGreaterThan(2);
+    expect(keepText(0)).toBe("Until I delete it");
+    expect(appLabel("WindowsTerminal.exe")).toBe("WindowsTerminal");
+    expect(appLabel("")).toBe("Unknown app");
+    expect(spokenTime(3_723_000)).toBe("1 h 2 min");
+    expect(spokenTime(59_000)).toBe("59 s");
+    expect(spokenTime(125_000)).toBe("2 min 5 s");
+  });
+});

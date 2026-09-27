@@ -6,13 +6,17 @@
   import Microphone from "./Microphone.svelte";
   import Models from "./Models.svelte";
   import About from "./About.svelte";
+  import Writing from "./Writing.svelte";
+  import History from "./History.svelte";
   import type { AppState, HwTestStatus, ProgressEvent, Settings } from "../lib/types";
 
-  type Page = "general" | "microphone" | "models" | "about";
+  type Page = "general" | "microphone" | "models" | "writing" | "history" | "about";
   const pages: { id: Page; label: string }[] = [
     { id: "general", label: "General" },
     { id: "microphone", label: "Microphone" },
     { id: "models", label: "Models" },
+    { id: "writing", label: "Writing" },
+    { id: "history", label: "History" },
     { id: "about", label: "About" },
   ];
 
@@ -68,6 +72,13 @@
     const offs = [
       on<AppState>("state-changed", receive),
       on<ProgressEvent>("model-progress", applyProgress),
+      on<ProgressEvent>("text-model-progress", (p) => {
+        const m = app?.text_models.find((x) => x.id === p.id);
+        if (m) {
+          m.state = "downloading";
+          m.downloaded = p.downloaded;
+        }
+      }),
       on<HwTestStatus>("hwtest-progress", (s) => {
         if (app) app.hardware_test = s;
       }),
@@ -121,6 +132,8 @@
       {#if page === "general"}<General {app} {save} />
       {:else if page === "microphone"}<Microphone {app} {save} />
       {:else if page === "models"}<Models {app} update={(s) => (app = s)} />
+      {:else if page === "writing"}<Writing {app} {save} update={(s) => (app = s)} />
+      {:else if page === "history"}<History {app} {save} update={(s) => (app = s)} />
       {:else}<About {app} />{/if}
     </main>
   </div>
