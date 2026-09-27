@@ -326,6 +326,7 @@ dependencies = [
  "aural-audio",
  "aural-core",
  "aural-engines",
+ "aural-eval",
  "aural-models",
  "aural-platform",
  "aural-stt-protocol",

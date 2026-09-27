@@ -18,6 +18,7 @@ anyhow = "1.0.104"
 aural-audio = { path = "../../crates/aural-audio" }
 aural-core = { path = "../../crates/aural-core" }
 aural-engines = { path = "../../crates/aural-engines" }
+aural-eval = { path = "../../crates/aural-eval" }
 aural-models = { path = "../../crates/aural-models" }
 aural-platform = { path = "../../crates/aural-platform" }
 aural-stt-protocol = { path = "../../crates/aural-stt-protocol" }

@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod dictation;
 pub mod engine;
+pub mod hwtest;
 pub mod io;
 pub mod pill;
 pub mod shell;
@@ -61,6 +62,13 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         let _ = settings::save(&paths.settings_file(), &s);
     }
 
+    let hardware_file = paths.hardware_file();
+    let results = aural_models::ResultsStore::load(&hardware_file)
+        .unwrap_or_else(|_| aural_models::ResultsStore::empty(&hardware_file));
+    if notice.is_none() {
+        notice.clone_from(&results.notice);
+    }
+
     let app = Arc::new(App {
         handle: handle.clone(),
         store,
@@ -78,6 +86,7 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         last_transcript: Mutex::new(None),
         tray_paste: Mutex::new(None),
         pill_hidden: AtomicBool::new(true),
+        hwtest: hwtest::HwTest::new(results),
     });
     handle.manage(app.clone());
 
@@ -136,6 +145,7 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
     }
 
     app.reload_engine();
+    hwtest::spawn_runner(&app);
 
     let autostarted = std::env::args().any(|a| a == "--autostart");
     if !autostarted {
@@ -183,6 +193,9 @@ pub fn run() {
             commands::cancel_download,
             commands::remove_model,
             commands::use_variant,
+            commands::hardware_state,
+            commands::start_hardware_test,
+            commands::cancel_hardware_test,
             commands::mic_test_start,
             commands::mic_test_stop,
             commands::open_mic_privacy,

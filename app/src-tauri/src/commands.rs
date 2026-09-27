@@ -134,6 +134,7 @@ pub fn download_model(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> 
         lock(&app2.cancels).remove(&entry.id);
         match result {
             Ok(()) => {
+                crate::hwtest::measure_download(&app2, &entry);
                 // The first installed model becomes the active one.
                 let mut s = app2.settings();
                 let active_ok = s
@@ -198,6 +199,38 @@ pub fn use_variant(app: State<'_, Arc<App>>, id: String) -> Res<AppStateDto> {
     app.save_settings(s).map_err(err)?;
     app.reload_engine();
     Ok(app.snapshot())
+}
+
+#[derive(Serialize)]
+pub struct HardwareState {
+    hardware: aural_models::HardwareProfile,
+    results: Vec<aural_models::VariantResult>,
+    labels: std::collections::BTreeMap<String, Vec<aural_models::Label>>,
+    hardware_test: crate::hwtest::HwTestStatus,
+}
+
+#[tauri::command]
+pub fn hardware_state(app: State<'_, Arc<App>>) -> HardwareState {
+    let e = crate::hwtest::evaluation(&app);
+    HardwareState {
+        hardware: app.hw.clone(),
+        results: e.results,
+        labels: e.labels,
+        hardware_test: app.hwtest.status(&app.hw),
+    }
+}
+
+/// Runs the Hardware Test in the background; `allow_probe_download` is the user's answer
+/// to "download two small test models (about 80 MB)?".
+#[tauri::command]
+pub fn start_hardware_test(app: State<'_, Arc<App>>, allow_probe_download: bool) -> AppStateDto {
+    crate::hwtest::start(&app, allow_probe_download);
+    app.snapshot()
+}
+
+#[tauri::command]
+pub fn cancel_hardware_test(app: State<'_, Arc<App>>) {
+    crate::hwtest::cancel(&app);
 }
 
 #[tauri::command]

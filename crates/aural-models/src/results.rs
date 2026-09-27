@@ -28,17 +28,22 @@ pub struct ResultsStore {
 }
 
 impl ResultsStore {
-    /// A missing file is an empty store; an unreadable one is renamed
-    /// `hardware.corrupt-<time>.json` and the store starts empty.
-    pub fn load(path: &Path) -> Result<ResultsStore> {
-        let mut store = ResultsStore {
+    /// An empty store that will save to path.
+    pub fn empty(path: &Path) -> ResultsStore {
+        ResultsStore {
             path: path.to_owned(),
             file: ResultsFile {
                 version: 1,
                 ..ResultsFile::default()
             },
             notice: None,
-        };
+        }
+    }
+
+    /// A missing file is an empty store; an unreadable one is renamed
+    /// `hardware.corrupt-<time>.json` and the store starts empty.
+    pub fn load(path: &Path) -> Result<ResultsStore> {
+        let mut store = ResultsStore::empty(path);
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(store),
@@ -109,6 +114,16 @@ impl ResultsStore {
     /// The results were measured on different hardware (new graphics card, driver…).
     pub fn is_stale(&self, hw: &HardwareProfile) -> bool {
         !self.file.fingerprint.is_empty() && self.file.fingerprint != hw.fingerprint()
+    }
+
+    /// Ties the store to this hardware before adding a result: a store from other
+    /// hardware starts over; one never tied to any keeps what it has.
+    pub fn adopt(&mut self, hw: &HardwareProfile) {
+        if self.is_stale(hw) {
+            self.reset_for(hw);
+        } else {
+            self.file.fingerprint = hw.fingerprint();
+        }
     }
 
     /// Starts over for this hardware: drops old results and calibrations.
@@ -200,6 +215,20 @@ mod tests {
         assert!(!s.is_stale(&hw("1")));
         assert!(s.is_stale(&hw("2")));
         s.reset_for(&hw("2"));
+        assert!(s.get("a@cpu").is_none());
+        assert!(!s.is_stale(&hw("2")));
+    }
+
+    #[test]
+    fn adopt_stamps_a_new_store_and_clears_a_stale_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = ResultsStore::load(&dir.path().join("hardware.json")).unwrap();
+        s.put(result("a@cpu", true, 300));
+        s.adopt(&hw("1"));
+        // Measured before any test on this PC: kept, and now tied to this PC.
+        assert!(s.get("a@cpu").is_some());
+        assert!(s.is_stale(&hw("2")));
+        s.adopt(&hw("2"));
         assert!(s.get("a@cpu").is_none());
         assert!(!s.is_stale(&hw("2")));
     }

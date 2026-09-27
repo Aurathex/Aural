@@ -81,6 +81,11 @@ impl AppPaths {
         self.data_dir.join("logs")
     }
 
+    /// Hardware Test results for this PC (%LOCALAPPDATA%, like the models).
+    pub fn hardware_file(&self) -> PathBuf {
+        self.data_dir.join("hardware.json")
+    }
+
     pub fn settings_file(&self) -> PathBuf {
         self.config_dir.join("settings.json")
     }
@@ -98,6 +103,10 @@ mod tests {
         assert_eq!(p.config_dir, Path::new("C:/tmp/aural-test/config"));
         assert_eq!(p.models_dir(), Path::new("C:/tmp/aural-test/data/models"));
         assert_eq!(p.logs_dir(), Path::new("C:/tmp/aural-test/data/logs"));
+        assert_eq!(
+            p.hardware_file(),
+            Path::new("C:/tmp/aural-test/data/hardware.json")
+        );
         assert_eq!(
             p.settings_file(),
             Path::new("C:/tmp/aural-test/config/settings.json")

@@ -51,7 +51,7 @@ impl Default for EngineHost {
 }
 
 /// Worker executables are installed next to aural.exe (Tauri sidecars).
-fn worker_exe(engine: Engine) -> PathBuf {
+pub fn worker_exe(engine: Engine) -> PathBuf {
     let name = match engine {
         Engine::Parakeet | Engine::Moonshine => "aural-stt-onnx.exe",
         Engine::Whisper => "aural-stt-ggml.exe",
@@ -62,9 +62,17 @@ fn worker_exe(engine: Engine) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(name))
 }
 
-fn threads() -> usize {
+pub fn threads() -> usize {
     let logical = std::thread::available_parallelism().map_or(4, |n| n.get());
     (logical / 2).saturating_sub(1).clamp(1, 8)
+}
+
+/// What the worker loads: the model folder (ONNX) or its single weights file (ggml).
+pub fn model_path(entry: &ModelEntry, store: &ModelStore) -> PathBuf {
+    match entry.engine {
+        Engine::Parakeet | Engine::Moonshine => store.dir(&entry.id),
+        Engine::Whisper => store.dir(&entry.id).join(&entry.files[0].name),
+    }
 }
 
 impl EngineHost {
@@ -119,10 +127,7 @@ impl EngineHost {
         self.set_status(EngineStatus::Loading {
             model: entry.id.clone(),
         });
-        let model_path = match entry.engine {
-            Engine::Parakeet | Engine::Moonshine => store.dir(&entry.id),
-            Engine::Whisper => store.dir(&entry.id).join(&entry.files[0].name),
-        };
+        let model_path = model_path(entry, store);
         let spawned = SttClient::spawn(WorkerSpec {
             exe: worker_exe(entry.engine),
             args: vec![],

@@ -1,14 +1,17 @@
 //! Shared application state and the snapshot the settings window renders.
 
 use crate::engine::{EngineHost, EngineStatus};
+use crate::hwtest::{HwTest, HwTestStatus};
 use aural_audio::capture::{CaptureHandle, InputDevice};
 use aural_core::paths::AppPaths;
 use aural_core::settings::{self, Settings};
-use aural_models::{statuses, Catalog, HardwareProfile, ModelStatus, ModelStore};
+use aural_models::{
+    statuses, Catalog, HardwareProfile, Label, ModelStatus, ModelStore, VariantResult,
+};
 use aural_platform::consent::MicConsent;
 use aural_platform::hook::HookHandle;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -39,6 +42,7 @@ pub struct App {
     pub tray_paste: Mutex<Option<MenuItem<Wry>>>,
     /// Latest pill state, so a delayed hide never hides a newer session.
     pub pill_hidden: AtomicBool,
+    pub hwtest: HwTest,
 }
 
 #[derive(Clone, Serialize)]
@@ -55,6 +59,10 @@ pub struct AppStateDto {
     pub data_dir: String,
     pub notice: Option<String>,
     pub last_transcript_available: bool,
+    /// Hardware Test: measured or estimated numbers per variant id, and the labels.
+    pub results: Vec<VariantResult>,
+    pub labels: BTreeMap<String, Vec<Label>>,
+    pub hardware_test: HwTestStatus,
 }
 
 pub fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -90,6 +98,7 @@ impl App {
             &self.hw,
         );
         let exe = std::env::current_exe().unwrap_or_default();
+        let eval = crate::hwtest::evaluation(self);
         AppStateDto {
             version: env!("CARGO_PKG_VERSION").into(),
             hotkey_display,
@@ -106,6 +115,9 @@ impl App {
             data_dir: self.paths.data_dir.display().to_string(),
             notice: lock(&self.notice).clone(),
             last_transcript_available: lock(&self.last_transcript).is_some(),
+            results: eval.results,
+            labels: eval.labels,
+            hardware_test: self.hwtest.status(&self.hw),
             settings: s,
         }
     }
