@@ -24,7 +24,8 @@ Aural is built so your voice never leaves your PC.
 
 ## When Aural uses the network
 
-Only when **you** click **Download** on the Models page. Aural then fetches the model
+Only when **you** click **Download** on the Models page, or agree to the PC check's two
+small test models (about 75 MB). Aural then fetches the model
 files from Hugging Face (`huggingface.co` and its download CDN) over HTTPS, at fixed,
 versioned addresses, and checks each file's SHA-256 before using it. The model
 catalogue is built into the app, so Aural never "checks in" on its own. There is no
@@ -38,7 +39,7 @@ security policy only allows talking to Aural itself).
 | Where | What |
 |---|---|
 | `%LOCALAPPDATA%\Aural` | the program |
-| `%LOCALAPPDATA%\com.aurathex.aural` | downloaded models and the settings window's web view cache |
+| `%LOCALAPPDATA%\com.aurathex.aural` | downloaded models, the PC check's results (`hardware.json`: speed and accuracy of each model on this PC, and a description of the processor, memory and graphics cards) and the settings window's web view cache |
 | `%APPDATA%\com.aurathex.aural\settings.json` | your settings (hotkey, microphone, model, startup) |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Aural` | only if you turn on "Start Aural with Windows" |
 

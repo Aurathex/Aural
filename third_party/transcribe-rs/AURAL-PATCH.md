@@ -1,7 +1,8 @@
 # transcribe-rs 0.3.11, patched for Aural
 
-Upstream: https://crates.io/crates/transcribe-rs (MIT License, see LICENSE; copyright
-the transcribe-rs authors). Source copied unmodified from the published 0.3.11 crate
+Upstream: https://crates.io/crates/transcribe-rs (repository
+https://github.com/cjpais/transcribe-rs), MIT License — see LICENSE (Copyright (c) 2025
+Ilya Stupakov), kept unchanged. Source copied unmodified from the published 0.3.11 crate
 (src, build.rs, LICENSE, README), except:
 
 - `Cargo.toml`: example, test and dev-dependency sections removed (those files are not

@@ -7,7 +7,8 @@ transcribed **on your own PC** and typed into whatever app you're using.
   download a speech model.
 - Hold **Ctrl + Win** (changeable) to dictate. A small black pill shows it's listening.
 - Speech models are downloaded from inside the app, never bundled.
-- English only for now.
+- Made for English. (Parakeet v3, one of the optional models, also understands 24 other
+  European languages.)
 
 ## Download Aural
 
@@ -61,7 +62,7 @@ Aural's first releases are **not code-signed**. What that means for you:
    on the same release page:
 
    ```powershell
-   Get-FileHash .\Aural_0.1.0_x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\Aural_0.2.0_x64-setup.exe -Algorithm SHA256
    ```
 
 3. **Build provenance.** Each release installer is built by the repository's public
@@ -70,7 +71,7 @@ Aural's first releases are **not code-signed**. What that means for you:
    what that workflow built, and from which commit:
 
    ```powershell
-   gh attestation verify .\Aural_0.1.0_x64-setup.exe --repo Aurathex/Aural
+   gh attestation verify .\Aural_0.2.0_x64-setup.exe --repo Aurathex/Aural
    ```
 
 ### Inspect it yourself, or ask an AI coding agent to
@@ -89,7 +90,7 @@ Worth looking at:
 | Keyboard hook, clipboard and text insertion | `crates/aural-platform/src/` |
 | Third-party licenses | `THIRD_PARTY_NOTICES.md` |
 
-A prompt you could use: *"Review github.com/Aurathex/Aural at tag v0.1.0. Check what the
+A prompt you could use: *"Review github.com/Aurathex/Aural at tag v0.2.0. Check what the
 installer and uninstaller change on my PC, every network request the app can make,
 where speech models are downloaded from and how they are verified, how the keyboard
 hook and clipboard are used, and whether the release workflow could ship anything other
@@ -98,9 +99,10 @@ guarantee.
 
 ## First run
 
-1. Aural opens on **Models**. Download the recommended model (Parakeet TDT 0.6B v2,
-   661 MB; Whisper small.en or base.en for older PCs). Downloads are checked against a
-   fixed SHA-256 before use.
+1. Aural opens on **Models** and offers to check your PC: it tries two small test models
+   (about 75 MB, only if you agree) and then shows which models suit this PC, in plain
+   words. Download the one marked **Recommended** (often Parakeet TDT 0.6B v2, 661 MB).
+   Downloads are checked against a fixed SHA-256 before use.
 2. Click into any app, hold **Ctrl + Win**, speak, let go. The text appears where your
    cursor is.
 3. Closing the window keeps Aural in the notification area. Turn on **Start Aural with
