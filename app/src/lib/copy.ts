@@ -220,9 +220,9 @@ export function cleanupText(mode: import("./types").CleanupMode): string {
     case "off":
       return "Types exactly what the speech model heard, with your dictionary applied.";
     case "light":
-      return "Removes \u201cum\u201d and \u201cuh\u201d, fixes spacing and the first capital letter. Your words stay the same.";
+      return "Removes \u201cum\u201d, \u201cuh\u201d and slips like \u201cthe the\u201d, fixes spacing and capitals, and ends sentences with a full stop or a question mark. No AI; your words stay the same.";
     case "ai":
-      return "A writing helper on this PC fixes punctuation, capitals and small slips. It is checked so it can't change numbers, links, code or what you meant; if it tries, the light tidy-up is used instead.";
+      return "The light tidy-up, then a writing helper on this PC may improve punctuation and capitals. It is not allowed to change your words, numbers, links or code; if it tries, the light tidy-up is used instead.";
   }
 }
 

@@ -217,7 +217,7 @@ mod tests {
             "",
             "the meeting is at 3pm",
             |t| {
-                assert_eq!(t, "The meeting is at 3pm");
+                assert_eq!(t, "The meeting is at 3pm.");
                 Some("The meeting is at 3pm.".into())
             },
         );
@@ -234,10 +234,53 @@ mod tests {
             "the meeting is at 3pm",
             |_| Some("The meeting is at 4pm.".into()),
         );
-        assert_eq!(changed.text, "The meeting is at 3pm");
+        assert_eq!(changed.text, "The meeting is at 3pm.");
         assert!(!changed.rewritten);
         let none = polish(&settings(CleanupMode::Ai), &words(), "", "um hi", |_| None);
         assert_eq!(none.text, "Hi");
+    }
+
+    #[test]
+    fn ai_runs_once_on_the_light_result_and_never_for_empty_text() {
+        let mut calls = Vec::new();
+        let p = polish(
+            &settings(CleanupMode::Ai),
+            &words(),
+            "",
+            "um so the meeting is at 3pm",
+            |t| {
+                calls.push(t.to_owned());
+                None
+            },
+        );
+        assert_eq!(calls, vec!["So the meeting is at 3pm.".to_string()]);
+        assert_eq!(p.text, "So the meeting is at 3pm.");
+        let p = polish(&settings(CleanupMode::Ai), &words(), "", "um uh", |_| {
+            panic!("no model call for nothing")
+        });
+        assert_eq!(p.text, "");
+    }
+
+    #[test]
+    fn an_app_set_to_off_or_light_never_reaches_the_model() {
+        for mode in [CleanupMode::Off, CleanupMode::Light] {
+            let mut s = settings(CleanupMode::Ai);
+            s.apps.push(AppProfile {
+                app: "code.exe".into(),
+                cleanup: Some(mode),
+                ..Default::default()
+            });
+            let p = polish(&s, &words(), "Code.exe", "um run the tests again", |_| {
+                panic!("{mode:?} must not call the model")
+            });
+            let want = if mode == CleanupMode::Off {
+                "um run the tests again"
+            } else {
+                "Run the tests again."
+            };
+            assert_eq!(p.text, want);
+            assert!(!p.rewritten);
+        }
     }
 
     #[test]
@@ -264,6 +307,6 @@ mod tests {
             "um git status aura thex",
             |_| None,
         );
-        assert_eq!(p.text, "Git status Aurathex");
+        assert_eq!(p.text, "Git status Aurathex.");
     }
 }
