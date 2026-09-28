@@ -20,6 +20,7 @@ pub struct Llm {
     head_dim: usize,
     stop: Vec<u32>,
     label: String,
+    model_type: Option<String>,
     inputs: Vec<String>,
     /// The last prompt and its key/value cache: the instructions and examples are the
     /// same every time, so the next prompt only computes what follows the shared part.
@@ -85,9 +86,14 @@ pub fn load(dir: &Path, threads: usize) -> Result<Box<dyn TextModel>> {
         tokenizer,
         layers,
         kv_heads,
-        head_dim: hidden / heads,
+        // Qwen3 states it (128 for 0.6B, not hidden / heads = 64).
+        head_dim: config_usize(&config, "head_dim").unwrap_or(hidden / heads),
         stop,
         label,
+        model_type: config
+            .get("model_type")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
         inputs,
         prefix: None,
     }))
@@ -104,6 +110,21 @@ pub fn chat_prompt(system: &str, examples: &[(String, String)], user: &str) -> S
     p.push_str(&format!(
         "<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n"
     ));
+    p
+}
+
+/// `chat_prompt` for a model family (`model_type` in config.json). Qwen3 would first
+/// "think" aloud; its own template turns that off with an empty thinking block.
+pub fn chat_prompt_for(
+    model_type: Option<&str>,
+    system: &str,
+    examples: &[(String, String)],
+    user: &str,
+) -> String {
+    let mut p = chat_prompt(system, examples, user);
+    if model_type == Some("qwen3") {
+        p.push_str("<think>\n\n</think>\n\n");
+    }
     p
 }
 
@@ -179,7 +200,7 @@ impl TextModel for Llm {
         user: &str,
         max_tokens: usize,
     ) -> Result<String> {
-        let prompt = chat_prompt(system, examples, user);
+        let prompt = chat_prompt_for(self.model_type.as_deref(), system, examples, user);
         let enc = self
             .tokenizer
             .encode(prompt.as_str(), false)
@@ -232,6 +253,16 @@ mod tests {
         assert_eq!(reusable(&[1, 2, 3], &[1, 2, 3]), 2);
         assert_eq!(reusable(&[], &[5]), 0);
         assert_eq!(reusable(&[7], &[8, 9]), 0);
+    }
+
+    #[test]
+    fn qwen3_answers_start_after_an_empty_thinking_block_and_others_do_not() {
+        let p = chat_prompt_for(Some("qwen3"), "s", &[("q".into(), "a".into())], "hi");
+        assert!(p.ends_with("<|im_start|>assistant\n<think>\n\n</think>\n\n"));
+        // Example answers are plain turns, as in Qwen3's own chat template.
+        assert!(p.contains("<|im_start|>assistant\na<|im_end|>"));
+        let q2 = chat_prompt_for(Some("qwen2"), "s", &[], "hi");
+        assert_eq!(q2, chat_prompt("s", &[], "hi"));
     }
 
     #[test]

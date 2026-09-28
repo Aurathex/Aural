@@ -121,7 +121,7 @@ fn sentence_capitals(text: &str) -> String {
                     && !ABBREVIATIONS.contains(&prev.text.to_lowercase().as_str())
             }
         };
-        if !starts_sentence || is_protected(&w.text) {
+        if (!starts_sentence && !is_pronoun_i(text, w)) || is_protected(&w.text) {
             continue;
         }
         let first = w.text.chars().next().unwrap_or(' ');
@@ -134,6 +134,19 @@ fn sentence_capitals(text: &str) -> String {
         }
     }
     out
+}
+
+/// "i", "i'm", "i'll", "i've", "i'd" as words, not a variable in code ("i = 0").
+fn is_pronoun_i(text: &str, w: &crate::protect::Word) -> bool {
+    let lower = w.text.to_lowercase().replace('’', "'");
+    let is_i = matches!(lower.as_str(), "i" | "i'm" | "i'll" | "i've" | "i'd");
+    let code_next = text[w.range.end..]
+        .trim_start()
+        .starts_with(['=', '+', '-', '*', '/', '<', '>', '[', '(']);
+    let code_before = text[..w.range.start]
+        .trim_end()
+        .ends_with(['=', '+', '*', '/', '<', '>', '[', '(']);
+    is_i && !code_next && !code_before
 }
 
 /// A dictation shorter than this is often a name, a search or a one-word answer; it gets
@@ -333,6 +346,19 @@ mod tests {
         assert_eq!(light("that was very very good"), "That was very very good.");
         assert_eq!(light("she had had enough of it"), "She had had enough of it.");
         assert_eq!(light("bye bye for now"), "Bye bye for now.");
+    }
+
+    #[test]
+    fn the_word_i_is_always_a_capital() {
+        assert_eq!(
+            light("why does it crash when i rotate the phone"),
+            "Why does it crash when I rotate the phone?"
+        );
+        assert_eq!(light("i'm sure i'll be there if i can"), "I'm sure I'll be there if I can.");
+        assert_eq!(light("i’ve read it and i'd sign"), "I’ve read it and I'd sign.");
+        // Not inside other words, code or addresses.
+        assert_eq!(light("set i = 0 in the loop"), "Set i = 0 in the loop.");
+        assert_eq!(light("the file is i/o bound"), "The file is i/o bound.");
     }
 
     #[test]
