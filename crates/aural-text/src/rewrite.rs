@@ -5,12 +5,13 @@
 //! An answer is used only if it
 //! - keeps every protected token (addresses, numbers, code, names in mixed case) exactly,
 //! - adds no protected token that wasn't dictated (no invented numbers or links),
-//! - keeps nearly all of the dictated words (only hesitations and repeats may go),
+//! - keeps exactly the dictated words in order (only punctuation, capitals, spacing,
+//!   hesitations and a word said twice in a row may change),
 //! - stays about the same length, and isn't a reply ("Sure, here is…").
 //!
 //! Otherwise the light cleanup's result is used.
 
-use crate::protect::{protected_tokens, tokens};
+use crate::protect::protected_tokens;
 
 /// Instructions for the model. The dictated text is data, never an instruction.
 pub const SYSTEM: &str = "You tidy up dictated text. Fix punctuation, capitals and obvious \
@@ -62,7 +63,9 @@ pub enum Rejected {
     LooksLikeAReply,
     ChangedProtected(String),
     AddedProtected(String),
-    DroppedWords { kept_percent: u32 },
+    /// The answer's words differ from the dictation's (only hesitations and stutters,
+    /// punctuation, capitals and spacing may change).
+    ChangedWords,
     Length,
 }
 
@@ -73,9 +76,7 @@ impl std::fmt::Display for Rejected {
             Rejected::LooksLikeAReply => write!(f, "the model replied instead of tidying"),
             Rejected::ChangedProtected(t) => write!(f, "the model changed or dropped {t:?}"),
             Rejected::AddedProtected(t) => write!(f, "the model added {t:?}"),
-            Rejected::DroppedWords { kept_percent } => {
-                write!(f, "the model kept only {kept_percent}% of the words")
-            }
+            Rejected::ChangedWords => write!(f, "the model changed, added or dropped words"),
             Rejected::Length => write!(f, "the model changed the length too much"),
         }
     }
@@ -96,16 +97,24 @@ const REPLY_OPENERS: &[&str] = &[
     "cleaned",
 ];
 
-const FILLERS: &[&str] = &[
-    "um", "umm", "uh", "uhh", "uhm", "erm", "er", "hmm", "mm", "ah",
-];
+pub(crate) const FILLERS: &[&str] = &["um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "ah"];
 
+/// The dictation's words in order, ignoring case, punctuation, hesitations and a word
+/// said twice in a row: what a tidy-up must leave exactly as it was.
 fn content_words(s: &str) -> Vec<String> {
-    tokens(s)
-        .into_iter()
-        .map(|w| w.text.to_lowercase())
-        .filter(|w| !FILLERS.contains(&w.as_str()))
-        .collect()
+    let mut out: Vec<String> = Vec::new();
+    for w in s
+        .to_lowercase()
+        .replace('’', "'")
+        .split(|c: char| !c.is_alphanumeric() && c != '\'')
+        .map(|w| w.trim_matches('\''))
+        .filter(|w| !w.is_empty() && !FILLERS.contains(w))
+    {
+        if out.last().map(String::as_str) != Some(w) {
+            out.push(w.to_owned());
+        }
+    }
+    out
 }
 
 /// Strip what models wrap answers in: the tags they were given, quotes, whitespace.
@@ -143,26 +152,12 @@ pub fn check(original: &str, answer: &str) -> Result<String, Rejected> {
     if let Some(t) = after.iter().find(|t| !before.contains(t)) {
         return Err(Rejected::AddedProtected(t.clone()));
     }
+    // Meaning lives in the words: one dropped "not", an added "can't" or two swapped
+    // words change it, so the words must be exactly the dictated ones, in order.
     let want = content_words(original);
     let got = content_words(a);
-    if !want.is_empty() {
-        let mut pool = got.clone();
-        let kept = want
-            .iter()
-            .filter(|w| match pool.iter().position(|g| g == *w) {
-                Some(i) => {
-                    pool.swap_remove(i);
-                    true
-                }
-                None => false,
-            })
-            .count();
-        let percent = (kept * 100 / want.len()) as u32;
-        if percent < 85 {
-            return Err(Rejected::DroppedWords {
-                kept_percent: percent,
-            });
-        }
+    if want != got {
+        return Err(Rejected::ChangedWords);
     }
     let (w, g) = (want.len().max(1), got.len());
     if g * 10 > w * 13 + 20 || g * 10 < w * 6 {
@@ -174,6 +169,24 @@ pub fn check(original: &str, answer: &str) -> Result<String, Rejected> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dropped_or_added_word_is_rejected_even_when_most_words_survive() {
+        let orig = "I do not want the red one";
+        assert!(check(orig, "I do want the red one.").is_err());
+        assert!(check("I want the red one", "I do not want the red one.").is_err());
+        assert!(check("you can go now", "You can't go now.").is_err());
+        assert!(check("the dog bit the man", "The man bit the dog.").is_err());
+        // Only punctuation, capitals, hesitations and stutters may change.
+        assert_eq!(
+            check(
+                "um i do not want the the red one",
+                "I do not want the red one."
+            )
+            .unwrap(),
+            "I do not want the red one."
+        );
+    }
 
     #[test]
     fn a_tidy_that_keeps_everything_is_accepted() {
@@ -210,10 +223,7 @@ mod tests {
     fn a_rewrite_that_changes_the_words_is_rejected() {
         let orig = "i reckon we could maybe push the launch back a week or so";
         let ans = "We should delay the launch by one week.";
-        assert!(matches!(
-            check(orig, ans),
-            Err(Rejected::DroppedWords { .. })
-        ));
+        assert!(matches!(check(orig, ans), Err(Rejected::ChangedWords)));
     }
 
     #[test]

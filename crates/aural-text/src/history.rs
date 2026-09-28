@@ -153,11 +153,15 @@ impl History {
 
     /// Delete everything, including the file.
     pub fn clear(&mut self) -> Result<()> {
-        self.entries.clear();
+        // The file first: if it can't be removed, nothing looks deleted that isn't.
         match std::fs::remove_file(&self.path) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-            _ => Ok(()),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(e).with_context(|| format!("deleting {}", self.path.display()))
+            }
+            _ => {}
         }
+        self.entries.clear();
+        Ok(())
     }
 
     /// Remove entries older than `keep_days` (0 keeps everything); returns how many.
@@ -250,6 +254,18 @@ mod tests {
         h.clear().unwrap();
         assert!(!p.exists());
         assert!(History::load(&p).unwrap().entries().is_empty());
+    }
+
+    #[test]
+    fn delete_all_keeps_entries_when_the_file_cannot_be_removed() {
+        let d = tempfile::tempdir().unwrap();
+        // A directory where the file should be: removing it as a file fails.
+        let p = d.path().join("h.jsonl");
+        let mut h = History::empty(&p);
+        h.entries.push(entry(1, "keep", ""));
+        std::fs::create_dir(&p).unwrap();
+        assert!(h.clear().is_err());
+        assert_eq!(h.entries().len(), 1);
     }
 
     #[test]

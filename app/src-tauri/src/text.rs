@@ -71,6 +71,15 @@ pub fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// The app name statistics may keep: none for an app left out of history.
+pub fn stats_app(s: &Session) -> &str {
+    if s.history {
+        &s.app
+    } else {
+        ""
+    }
+}
+
 /// Keep a finished dictation in history and statistics, as the settings allow.
 pub fn record(app: &Arc<App>, raw: &str, text: &str, s: &Session) {
     let settings = app.settings();
@@ -98,7 +107,7 @@ pub fn record(app: &Arc<App>, raw: &str, text: &str, s: &Session) {
             words: u64::from(words),
             audio_ms: s.audio_ms,
             variant: &variant,
-            app: &s.app,
+            app: stats_app(s),
             live: s.live,
             cleaned: s.cleaned,
         });
@@ -120,7 +129,7 @@ pub fn reload_text_engine(app: &Arc<App>) {
         .filter(|m| aural_models::text::is_installed(&app.paths.text_models_dir(), m));
     match (wanted, model) {
         (true, Some(m)) => {
-            if app.text_engine.loaded_model().as_deref() == Some(m.id.as_str()) {
+            if !crate::text_engine::needs_load(&app.text_engine.status(), &m.id) {
                 return;
             }
             let app = app.clone();
@@ -156,6 +165,22 @@ mod tests {
         let mut s = Settings::default();
         s.text.cleanup = mode;
         s
+    }
+
+    #[test]
+    fn an_app_left_out_of_history_is_not_named_in_statistics() {
+        let private = Session {
+            app: "keepassxc.exe".into(),
+            history: false,
+            ..Default::default()
+        };
+        assert_eq!(stats_app(&private), "");
+        let open = Session {
+            app: "slack.exe".into(),
+            history: true,
+            ..Default::default()
+        };
+        assert_eq!(stats_app(&open), "slack.exe");
     }
 
     #[test]

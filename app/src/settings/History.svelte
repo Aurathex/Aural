@@ -47,12 +47,22 @@
     new Date(at * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
   async function remove(id: number) {
-    await call("history_delete", { id });
+    error = null;
+    try {
+      await call("history_delete", { id });
+    } catch (e) {
+      error = `That dictation couldn't be deleted: ${e}`;
+    }
     await load();
   }
 
   async function clearAll() {
-    await call("history_clear");
+    error = null;
+    try {
+      await call("history_clear");
+    } catch (e) {
+      error = `History couldn't be deleted: ${e}`;
+    }
     confirmClear = false;
     await load();
   }

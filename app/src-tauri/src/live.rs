@@ -104,8 +104,9 @@ impl LiveFeed {
         self.thread.join().ok().flatten()
     }
 
-    /// Drop the stream without waiting for it; it shows nothing more.
-    pub fn cancel(self) {
+    /// Stop showing anything and close the stream when the recording's audio ends.
+    /// Doesn't wait; `finish` afterwards waits until it is closed (and returns None).
+    pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }
 }
@@ -280,10 +281,23 @@ mod tests {
         f.cancel();
         tx.send(vec![0.1; 8_000]).unwrap();
         drop(tx);
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(f.finish(), None);
         assert_eq!(shown.lock().unwrap().len(), before);
         assert!(log(&e).contains(&"cancel".to_string()));
         assert!(!log(&e).iter().any(|l| l.starts_with("end")));
+    }
+
+    #[test]
+    fn a_cancelled_stream_has_closed_itself_once_finish_returns() {
+        // The next recording's stream must not be opened while the old one can still
+        // cancel (the worker cancels whatever stream is open).
+        let e = Arc::new(Fake::default());
+        let (tx, f, _) = feed(e.clone());
+        tx.send(vec![0.1; 8_000]).unwrap();
+        f.cancel();
+        drop(tx);
+        assert_eq!(f.finish(), None);
+        assert_eq!(log(&e).last().map(String::as_str), Some("cancel"));
     }
 
     #[test]

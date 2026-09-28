@@ -99,14 +99,25 @@ fn live_text_streams_two_sentences_through_the_worker() {
             .map(str::to_owned)
             .collect()
     };
-    let want: Vec<String> = refs.split('|').flat_map(norm).collect();
     let got = norm(&fin);
-    let missed = want.iter().filter(|w| !got.contains(w)).count();
+    // The invariant: live text loses and duplicates nothing compared with reading the
+    // whole recording the ordinary way on the same model.
+    let whole = norm(&c.transcribe(&pcm, t).unwrap());
+    let lost = whole.iter().filter(|w| !got.contains(w)).count();
+    eprintln!("whole recording: {}", whole.join(" "));
     assert!(shown >= 3, "no words shown while speaking");
     assert!(
-        missed * 10 <= want.len(),
+        lost * 10 <= whole.len(),
+        "live lost {lost}/{} words: {fin}",
+        whole.len()
+    );
+    assert!(got.len() * 10 <= whole.len() * 12, "duplicated text? {fin}");
+    // And it is still the right text (model accuracy, so a looser bar).
+    let want: Vec<String> = refs.split('|').flat_map(norm).collect();
+    let missed = want.iter().filter(|w| !got.contains(w)).count();
+    assert!(
+        missed * 5 <= want.len(),
         "missed {missed}/{}: {fin}",
         want.len()
     );
-    assert!(got.len() * 10 <= want.len() * 12, "duplicated text? {fin}");
 }

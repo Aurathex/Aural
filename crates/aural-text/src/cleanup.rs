@@ -9,12 +9,9 @@
 
 use crate::protect::{overlaps, protected, tokens};
 
-const FILLERS: &[&str] = &[
-    "um", "umm", "uh", "uhh", "uhm", "erm", "er", "hmm", "mm", "ah",
-];
-
+/// Not "mm" (millimetres) or "er": too often real words.
 fn is_filler(word: &str) -> bool {
-    FILLERS.contains(&word.to_lowercase().as_str())
+    crate::rewrite::FILLERS.contains(&word.to_lowercase().as_str())
 }
 
 pub fn light(text: &str) -> String {
@@ -38,9 +35,15 @@ pub fn light(text: &str) -> String {
 
     // Spacing: collapse runs of spaces, no space before , . ; : ! ?, no doubled commas,
     // no comma or space at the very start.
+    // Protected spans (code in backticks, addresses) keep their own spacing.
+    let keep = protected(&out);
     let mut tidy = String::with_capacity(out.len());
-    for ch in out.chars() {
+    for (i, ch) in out.char_indices() {
         let last = tidy.chars().last();
+        if keep.iter().any(|r| r.contains(&i)) {
+            tidy.push(ch);
+            continue;
+        }
         match ch {
             ' ' if last.is_none_or(|c| c == ' ') => {}
             ',' | '.' | ';' | ':' | '!' | '?' if last == Some(' ') => {
@@ -53,10 +56,18 @@ pub fn light(text: &str) -> String {
             _ => tidy.push(ch),
         }
     }
-    let tidy = tidy
-        .trim()
-        .trim_start_matches([',', ' ', '.', ';', ':'])
-        .to_owned();
+    // Stray punctuation left at the start by removed hesitations goes; a full stop that
+    // begins a word or number (".NET", ".5") stays.
+    let mut tidy = tidy.trim();
+    while let Some(c) = tidy.chars().next() {
+        let next = tidy[c.len_utf8()..].chars().next();
+        let starts_word = c == '.' && next.is_some_and(char::is_alphanumeric);
+        if !matches!(c, ',' | ' ' | '.' | ';' | ':') || starts_word {
+            break;
+        }
+        tidy = &tidy[c.len_utf8()..];
+    }
+    let tidy = tidy.to_owned();
 
     // A capital at the start, unless the first word is protected (e.g. "iPhone").
     let first_protected = tokens(&tidy)
@@ -92,6 +103,14 @@ mod tests {
             light("uh iPhone 15 costs $999 at apple.com/uk"),
             "iPhone 15 costs $999 at apple.com/uk"
         );
+    }
+
+    #[test]
+    fn units_and_protected_spacing_survive() {
+        assert_eq!(light("the bolt is 5 mm long"), "The bolt is 5 mm long");
+        assert_eq!(light(".NET is fine"), ".NET is fine");
+        assert_eq!(light(".5 mg twice"), ".5 mg twice");
+        assert_eq!(light("run `a  b` now"), "Run `a  b` now");
     }
 
     #[test]

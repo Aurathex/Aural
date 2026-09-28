@@ -24,6 +24,9 @@ pub struct AppIo {
     start_cue_played: bool,
     /// Live text for the current recording, when it runs.
     live: Option<LiveFeed>,
+    /// A cancelled stream that may still be closing itself; joined before the next one
+    /// opens (the worker cancels whichever stream is open).
+    stale: Option<LiveFeed>,
     /// This session's pill has a live-text caption (until the pill hides).
     caption: bool,
     /// Facts about the current dictation, for history and statistics.
@@ -56,6 +59,7 @@ impl AppIo {
             last_pill: PillState::Hidden,
             start_cue_played: false,
             live: None,
+            stale: None,
             caption: false,
             session: Default::default(),
         }
@@ -101,6 +105,9 @@ impl AppIo {
             LiveStatus::Native | LiveStatus::Phrases
         ) {
             return None;
+        }
+        if let Some(old) = self.stale.take() {
+            old.finish();
         }
         let (tx, rx) = mpsc::channel();
         let handle = self.app.handle.clone();
@@ -244,6 +251,7 @@ impl DictationIo for AppIo {
     fn live_cancel(&mut self) {
         if let Some(feed) = self.live.take() {
             feed.cancel();
+            self.stale = Some(feed);
         }
     }
 
@@ -256,6 +264,12 @@ impl DictationIo for AppIo {
         });
         self.session.cleaned = p.cleaned;
         self.session.history = p.effective.history;
+        // A writing helper stopped after a timeout starts again for the next dictation.
+        if p.effective.cleanup == aural_core::settings::CleanupMode::Ai
+            && self.app.text_engine.status() == crate::text_engine::TextStatus::Off
+        {
+            crate::text::reload_text_engine(&self.app);
+        }
         p.text
     }
 
