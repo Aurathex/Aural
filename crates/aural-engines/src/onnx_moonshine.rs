@@ -312,8 +312,14 @@ mod tests {
             t0.elapsed().as_millis(),
             text.split_whitespace().count()
         );
-        assert!(missed_words(&last_ref, &text) < 0.3, "last sentence missing: …{tail}");
-        assert!(slowest < 3_000, "updates must stay bounded, slowest {slowest} ms");
+        assert!(
+            missed_words(&last_ref, &text) < 0.3,
+            "last sentence missing: …{tail}"
+        );
+        assert!(
+            slowest < 3_000,
+            "updates must stay bounded, slowest {slowest} ms"
+        );
     }
 
     /// Real Moonshine model (AURAL_TEST_MOONSHINE_DIR) on real speech, on the processor
