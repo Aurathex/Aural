@@ -64,8 +64,8 @@ pub fn place(work: Rect, dpi: u32, position: PillPosition, caption: bool) -> Rec
 /// The pill's window style: a plain pop-up. tao keeps title-bar styles (caption, system
 /// menu, sizing frame, min/max boxes) on undecorated windows and only hides the frame
 /// with WM_NCCALCSIZE; Windows 11 then still draws its own frame (caption material,
-/// rounded border, a close button) under the window. Through the transparent pill that
-/// showed as a grey box on an AMD RX 9070 XT PC.
+/// rounded border, a close button) under the window, visible through the transparent
+/// pill wherever something makes the frame show (see the `focusable` test below).
 pub fn popup_style(style: u32) -> u32 {
     const TITLE_BAR: u32 = 0x00C0_0000 // WS_CAPTION
         | 0x0008_0000 // WS_SYSMENU
@@ -218,6 +218,26 @@ mod tests {
             && r.top >= work.top + margin
             && r.right <= work.right - margin
             && r.bottom <= work.bottom - margin
+    }
+
+    /// Window-styling tools (Windhawk's "Translucent Windows" mod, found on the AMD test
+    /// PC) give every activatable window an acrylic backdrop when it is created; through
+    /// the transparent pill that showed as a grey box. A window that can never take focus
+    /// (no-activate from creation) is left alone by such tools, and the pill must never
+    /// take focus anyway.
+    #[test]
+    fn the_pill_window_is_created_unable_to_take_focus() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let pill = conf["app"]["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["label"] == "pill")
+            .unwrap();
+        assert_eq!(pill["focusable"], false);
+        assert_eq!(pill["focus"], false);
+        assert_eq!(pill["transparent"], true);
     }
 
     #[test]
