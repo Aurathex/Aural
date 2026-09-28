@@ -259,7 +259,19 @@ impl DictationIo for AppIo {
         let settings = self.app.settings();
         let words = lock(&self.app.words).clone();
         let engine = &self.app.text_engine;
+        let handle = &self.app.handle;
+        let caption = self.caption.then_some(settings.ui.pill_position);
         let p = crate::text::polish(&settings, &words, &self.session.app, raw, |t| {
+            // Only reached when AI tidy-up runs: say so on the pill meanwhile.
+            let _ = handle.emit_to(
+                "pill",
+                "pill",
+                &PillView {
+                    state: PillState::Processing,
+                    label: Some(crate::dictation::AI_TIDYING.to_owned()),
+                    caption,
+                },
+            );
             engine.rewrite(t)
         });
         self.session.cleaned = p.cleaned;

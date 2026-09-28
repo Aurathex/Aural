@@ -14,6 +14,10 @@ use std::collections::VecDeque;
 /// A forgotten toggle-mode recording stops itself after five minutes.
 pub const MAX_RECORDING_MS: u64 = 5 * 60 * 1000;
 const SUCCESS_MS: u64 = 700;
+/// What the pill says while the speech model reads the recording, and while the local
+/// AI tidies the text (AI tidy-up only).
+pub const TRANSCRIBING: &str = "Transcribing…";
+pub const AI_TIDYING: &str = "AI tidying up…";
 const ERROR_MS: u64 = 2_500;
 const RATE: u32 = 16_000;
 
@@ -199,6 +203,7 @@ impl<I: DictationIo> Dictation<I> {
             Effect::Pill(state) => {
                 let label = match state {
                     PillState::Error(code) => Some(code.label().to_owned()),
+                    PillState::Processing => Some(TRANSCRIBING.to_owned()),
                     _ => None,
                 };
                 self.io.pill(PillView {
@@ -367,6 +372,26 @@ mod tests {
         assert!(delay > 0 && delay <= 1000);
         d.handle(input);
         assert_eq!(states(&d.io).last(), Some(&PillState::Hidden));
+    }
+
+    #[test]
+    fn the_processing_pill_says_it_is_transcribing() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.transcript = Some(Ok("Hello.".into()));
+        hold(&mut d, 1200);
+        let processing =
+            d.io.pills
+                .iter()
+                .find(|p| p.state == PillState::Processing)
+                .unwrap();
+        assert_eq!(processing.label.as_deref(), Some(TRANSCRIBING));
+        // Other states keep their own look (bars, the success line).
+        assert!(d
+            .io
+            .pills
+            .iter()
+            .filter(|p| matches!(p.state, PillState::Listening | PillState::Success))
+            .all(|p| p.label.is_none()));
     }
 
     #[test]

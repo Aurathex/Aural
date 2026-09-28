@@ -5,7 +5,7 @@
   import { on } from "../lib/api";
   import type { LiveText, PillView } from "../lib/types";
   import { nextDisplay, type PillDisplay } from "../lib/pillExit";
-  import { captionAfterLive, captionAfterPill, EMPTY } from "../lib/liveCaption";
+  import { captionAfterLive, captionAfterPill, captionWords, EMPTY } from "../lib/liveCaption";
 
   // `preview` lets the settings window show the same pill (microphone test).
   let {
@@ -44,7 +44,8 @@
 {#if caption}
   <!-- Live text: finished words in white, words that may still change in grey. -->
   <div class="caption" class:shown={showCaption} class:leaving aria-hidden="true">
-    <p>{#if words.stable}<span class="stable">{words.stable}</span>{/if}{#if words.stable && words.tentative}{" "}{/if}{#if words.tentative}<span class="tentative">{words.tentative}</span>{/if}</p>
+    <!-- Keyed by position: words on screen stay put; each new word fades and rises in. -->
+    <p>{#each captionWords(words) as w, i (i)}{#if i > 0}{" "}{/if}<span class="word" class:tentative={!w.stable}>{w.text}</span>{/each}</p>
   </div>
 {/if}
 <div class="pill {kind}" class:leaving role="status" aria-live="polite">
@@ -54,13 +55,16 @@
       <span class="label">{current.label}</span>
     {:else if kind === "success"}
       <span class="line"></span>
+    {:else if kind === "processing" && current.label}
+      <!-- What Aural is doing: "Transcribing…", "AI tidying up…". -->
+      {#key current.label}<span class="label status">{current.label}</span>{/key}
     {:else}
       <Bars levels={bands} mode={kind === "listening" ? "live" : "dots"} />
       {#if kind === "processing"}<span class="sweep"></span>{/if}
     {/if}
   </div>
   <span class="sr">
-    {kind === "listening" ? "Listening" : kind === "processing" ? "Transcribing" : kind === "success" ? "Text inserted" : (current.label ?? "")}
+    {kind === "listening" ? "Listening" : kind === "processing" ? (current.label ?? "Transcribing") : kind === "success" ? "Text inserted" : (current.label ?? "")}
   </span>
 </div>
 </div>
@@ -96,6 +100,30 @@
     overflow-wrap: anywhere;
   }
   .tentative { color: #9a9a9a; }
+  /* A new word fades and rises in; a word already shown only changes colour when it
+     settles. */
+  .word {
+    display: inline-block;
+    animation: word-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+    transition: color 200ms ease-out;
+  }
+  @keyframes word-in {
+    from { opacity: 0; transform: translateY(3px); filter: blur(1.5px); }
+    to { opacity: 1; transform: none; filter: none; }
+  }
+  /* Processing: the status text breathes gently while the work runs. */
+  .label.status {
+    color: #d4d4d4;
+    animation: status-in 180ms ease-out both, breathe 1400ms ease-in-out 180ms infinite;
+  }
+  @keyframes status-in {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
   .pill {
     position: relative;
     display: flex;
@@ -192,7 +220,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .sweep { animation: none; opacity: 0.4; }
-    .line, .error { animation: none; }
+    .line, .error, .word, .label.status { animation: none; }
     .pill.leaving { transform: none; }
   }
 </style>

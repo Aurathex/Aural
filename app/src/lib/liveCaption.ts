@@ -13,7 +13,26 @@ export function captionAfterPill(shown: LiveText, next: PillView, prev: Kind): L
   return EMPTY;
 }
 
-/** Live words only count while the user is speaking. */
+/** Live words only count while the user is speaking. An update with no words (a new
+ * phrase or stream starting) keeps what is shown, so the caption doesn't blink. */
 export function captionAfterLive(shown: LiveText, words: LiveText, kind: Kind): LiveText {
-  return kind === "listening" ? words : shown;
+  if (kind !== "listening") return shown;
+  if (words.stable.trim() === "" && words.tentative.trim() === "") return shown;
+  return words;
+}
+
+export interface CaptionWord {
+  text: string;
+  /** Finished (white) rather than still able to change (grey). */
+  stable: boolean;
+}
+
+/** The caption as words in reading order. Drawn keyed by position, so a word already on
+ * screen stays put (and only changes its text if corrected) while new words fade in. */
+export function captionWords(words: LiveText): CaptionWord[] {
+  const split = (s: string) => s.split(/\s+/).filter((w) => w !== "");
+  return [
+    ...split(words.stable).map((text) => ({ text, stable: true })),
+    ...split(words.tentative).map((text) => ({ text, stable: false })),
+  ];
 }
