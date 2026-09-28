@@ -262,6 +262,60 @@ mod tests {
         assert!(missed_words(&reference, &text) < 0.3, "{text}");
     }
 
+    /// A long dictation (about 90 s of LibriSpeech, AURAL_TEST_LIBRISPEECH_DIR) through
+    /// Moonshine Streaming: the decoder's token limit (about 70 s of speech per stream)
+    /// must not cut off the end, and memory must stay flat. Run with
+    /// `--features onnx -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn a_long_streamed_dictation_keeps_its_last_sentence() {
+        let _ort = crate::test_support::ort_lock();
+        use crate::live::LiveSession;
+        use crate::test_support::missed_words;
+        let dir = std::env::var("AURAL_TEST_MOONSHINE_STREAM_DIR").expect("dir");
+        let corpus = std::path::PathBuf::from(
+            std::env::var("AURAL_TEST_LIBRISPEECH_DIR").expect("AURAL_TEST_LIBRISPEECH_DIR"),
+        );
+        let tsv = std::fs::read_to_string(corpus.join("corpus.tsv")).unwrap();
+        let mut pcm = Vec::new();
+        let mut last_ref = String::new();
+        for line in tsv.lines().filter(|l| !l.starts_with('#')) {
+            let cols: Vec<&str> = line.split('\t').collect();
+            pcm.extend(aural_audio::dsp::load_wav_16k_mono(&corpus.join(cols[1])).unwrap());
+            last_ref = cols[2].to_owned();
+            if pcm.len() >= 90 * 16_000 {
+                break;
+            }
+        }
+        let mut t = load(std::path::Path::new(&dir), Backend::Cpu, 4).unwrap();
+        let mut s = LiveSession::begin(t.as_mut()).unwrap();
+        let mut slowest = 0u128;
+        for chunk in pcm.chunks(5_120) {
+            let t0 = std::time::Instant::now();
+            s.push(t.as_mut(), chunk).unwrap();
+            slowest = slowest.max(t0.elapsed().as_millis());
+        }
+        let t0 = std::time::Instant::now();
+        let text = s.finish(t.as_mut()).unwrap();
+        let tail: String = text
+            .split_whitespace()
+            .rev()
+            .take(40)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(" ");
+        eprintln!(
+            "{:.0} s streamed; slowest update {slowest} ms; final {} ms; {} words; ends: …{tail}",
+            pcm.len() as f64 / 16_000.0,
+            t0.elapsed().as_millis(),
+            text.split_whitespace().count()
+        );
+        assert!(missed_words(&last_ref, &text) < 0.3, "last sentence missing: …{tail}");
+        assert!(slowest < 3_000, "updates must stay bounded, slowest {slowest} ms");
+    }
+
     /// Real Moonshine model (AURAL_TEST_MOONSHINE_DIR) on real speech, on the processor
     /// Run with `--features onnx -- --ignored`.
     #[test]

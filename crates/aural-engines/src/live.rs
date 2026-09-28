@@ -3,7 +3,10 @@
 //! Two ways to get there, chosen by the engine:
 //!
 //! - **Native** (`Transcriber::stream`): the engine encodes audio as it arrives and never
-//!   encodes the same audio twice (Moonshine Streaming).
+//!   encodes the same audio twice (Moonshine Streaming). Its decoder still re-reads
+//!   everything encoded in the stream for each update and stops at a fixed token limit,
+//!   so the stream is closed and a new one opened at each pause (and after at most
+//!   [`MAX_NATIVE_MS`] of speech without one): cost and length stay bounded per phrase.
 //! - **Phrases**, for engines that only read whole recordings (Parakeet, Whisper): the
 //!   recording is split at pauses. A finished phrase is read once and never again; only
 //!   the phrase still being spoken is re-read, every [`STEP_MS`], so the cost stays bounded
@@ -27,6 +30,9 @@ const SOUND_RMS: f32 = 0.01;
 pub const PAUSE_MS: usize = 600;
 /// A phrase with no pause is closed at its quietest moment after this long.
 pub const MAX_PHRASE_MS: usize = 20_000;
+/// A native stream with no pause is closed at the first quiet moment after
+/// [`MAX_PHRASE_MS`], and at the latest after this long.
+pub const MAX_NATIVE_MS: usize = 28_000;
 /// New audio needed before the open phrase is read again.
 pub const STEP_MS: usize = 300;
 /// Silence kept around speech when a phrase is read.
@@ -103,6 +109,10 @@ pub struct LiveSession {
     /// Leading words of `last` that the previous read agreed with.
     agreed: usize,
     since_read: usize,
+    /// Native: audio in the open stream, whether it held speech, and trailing silence.
+    stream_len: usize,
+    heard: bool,
+    quiet_run: usize,
 }
 
 impl LiveSession {
@@ -122,6 +132,9 @@ impl LiveSession {
             last: Vec::new(),
             agreed: 0,
             since_read: 0,
+            stream_len: 0,
+            heard: false,
+            quiet_run: 0,
         })
     }
 
@@ -185,18 +198,59 @@ impl LiveSession {
             .map_or(to, |i| i + win / 2)
     }
 
+    fn native_push(&mut self, engine: &mut dyn Transcriber, pcm: &[f32]) -> Result<()> {
+        let s = engine
+            .stream()
+            .ok_or_else(|| anyhow!("engine stopped streaming"))?;
+        s.push(pcm)?;
+        self.stream_len += pcm.len();
+        for frame in pcm.chunks(FRAME) {
+            if rms(frame) >= SOUND_RMS {
+                self.heard = true;
+                self.quiet_run = 0;
+            } else {
+                self.quiet_run += frame.len();
+            }
+        }
+        let long = self.stream_len >= samples(MAX_PHRASE_MS);
+        let close = self.heard
+            && (self.quiet_run >= samples(PAUSE_MS)
+                || (long && self.quiet_run > 0)
+                || self.stream_len >= samples(MAX_NATIVE_MS));
+        if close {
+            let text = s.finish()?;
+            let text = text.trim();
+            if !text.is_empty() {
+                self.committed.push(text.to_owned());
+            }
+            s.begin()?;
+            self.reset_native();
+        } else if !self.heard && self.stream_len >= samples(5_000) {
+            // Only silence so far: start over rather than keep encoding it.
+            s.cancel();
+            s.begin()?;
+            self.reset_native();
+        } else if self.heard && self.since_read >= samples(STEP_MS) {
+            let partial = s.partial()?;
+            self.read(&partial);
+        }
+        Ok(())
+    }
+
+    fn reset_native(&mut self) {
+        self.stream_len = 0;
+        self.heard = false;
+        self.quiet_run = 0;
+        self.last.clear();
+        self.agreed = 0;
+        self.since_read = 0;
+    }
+
     /// Add new audio; returns the text so far.
     pub fn push(&mut self, engine: &mut dyn Transcriber, pcm: &[f32]) -> Result<LiveText> {
         self.since_read += pcm.len();
         if self.mode == LiveMode::Native {
-            let s = engine
-                .stream()
-                .ok_or_else(|| anyhow!("engine stopped streaming"))?;
-            s.push(pcm)?;
-            if self.since_read >= samples(STEP_MS) {
-                let partial = s.partial()?;
-                self.read(&partial);
-            }
+            self.native_push(engine, pcm)?;
             return Ok(self.text());
         }
 
@@ -229,7 +283,12 @@ impl LiveSession {
             let s = engine
                 .stream()
                 .ok_or_else(|| anyhow!("engine stopped streaming"))?;
-            return Ok(s.finish()?.trim().to_owned());
+            let text = s.finish()?;
+            let text = text.trim();
+            if !text.is_empty() {
+                self.committed.push(text.to_owned());
+            }
+            return Ok(self.committed.join(" "));
         }
         let len = self.open.len();
         self.commit(engine, len)?;
@@ -411,6 +470,9 @@ mod tests {
         log: Vec<String>,
         pushed: usize,
         open: bool,
+        /// finish() returns "p1", "p2", … (one per stream) instead of "final text".
+        numbered: bool,
+        finished: usize,
     }
 
     impl Transcriber for Native {
@@ -442,9 +504,15 @@ mod tests {
             Ok(format!("n{}", self.pushed / samples(500)))
         }
         fn finish(&mut self) -> Result<String> {
+            anyhow::ensure!(self.open, "not open");
             self.open = false;
+            self.finished += 1;
             self.log.push("finish".into());
-            Ok(" final text ".into())
+            Ok(if self.numbered {
+                format!("p{}", self.finished)
+            } else {
+                " final text ".into()
+            })
         }
         fn cancel(&mut self) {
             self.open = false;
@@ -463,6 +531,51 @@ mod tests {
         assert_eq!(e.pushed, samples(1_000));
         assert_eq!(s.finish(&mut e).unwrap(), "final text");
         assert!(!e.log.contains(&"whole".to_string()), "{:?}", e.log);
+    }
+
+    fn count(log: &[String], what: &str) -> usize {
+        log.iter().filter(|l| *l == what).count()
+    }
+
+    #[test]
+    fn a_native_stream_is_closed_and_reopened_at_each_pause() {
+        let mut e = Native {
+            numbered: true,
+            ..Default::default()
+        };
+        let mut s = LiveSession::begin(&mut e).unwrap();
+        feed(&mut s, &mut e, &talk(1_000));
+        let t = feed(&mut s, &mut e, &quiet(800));
+        assert_eq!(t.stable, "p1", "the finished phrase is settled");
+        feed(&mut s, &mut e, &talk(1_000));
+        assert_eq!(s.finish(&mut e).unwrap(), "p1 p2");
+        assert_eq!(count(&e.log, "begin"), 2);
+        assert_eq!(count(&e.log, "finish"), 2);
+    }
+
+    #[test]
+    fn long_native_speech_is_cut_so_the_decoder_never_runs_out_of_room() {
+        // Moonshine's decoder stops at 448 tokens (about 70 s of speech): one stream
+        // for a long dictation would lose its end.
+        let mut e = Native {
+            numbered: true,
+            ..Default::default()
+        };
+        let mut s = LiveSession::begin(&mut e).unwrap();
+        feed(&mut s, &mut e, &talk(100_000));
+        let text = s.finish(&mut e).unwrap();
+        let phrases = count(&e.log, "finish");
+        assert!(phrases >= 4, "{phrases} streams for 100 s: {text}");
+        assert_eq!(text.split(' ').count(), phrases, "each phrase once: {text}");
+    }
+
+    #[test]
+    fn silence_before_speech_never_closes_an_empty_native_stream() {
+        let mut e = Native::default();
+        let mut s = LiveSession::begin(&mut e).unwrap();
+        feed(&mut s, &mut e, &quiet(3_000));
+        assert_eq!(count(&e.log, "finish"), 0);
+        assert_eq!(count(&e.log, "begin"), 1);
     }
 
     #[test]
