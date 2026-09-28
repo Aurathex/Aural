@@ -61,6 +61,21 @@ pub fn place(work: Rect, dpi: u32, position: PillPosition, caption: bool) -> Rec
     }
 }
 
+/// The pill's window style: a plain pop-up. tao keeps title-bar styles (caption, system
+/// menu, sizing frame, min/max boxes) on undecorated windows and only hides the frame
+/// with WM_NCCALCSIZE; Windows 11 then still draws its own frame (caption material,
+/// rounded border, a close button) under the window. Through the transparent pill that
+/// showed as a grey box on an AMD RX 9070 XT PC.
+pub fn popup_style(style: u32) -> u32 {
+    const TITLE_BAR: u32 = 0x00C0_0000 // WS_CAPTION
+        | 0x0008_0000 // WS_SYSMENU
+        | 0x0004_0000 // WS_THICKFRAME
+        | 0x0002_0000 // WS_MINIMIZEBOX
+        | 0x0001_0000; // WS_MAXIMIZEBOX
+    const WS_POPUP: u32 = 0x8000_0000;
+    (style & !TITLE_BAR) | WS_POPUP
+}
+
 #[cfg(windows)]
 mod win {
     use super::*;
@@ -92,11 +107,49 @@ mod win {
                     ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize,
                 );
             }
+            frameless(h);
+        }
+    }
+
+    /// No Windows frame under the pill (see `popup_style`): pop-up style, and the
+    /// non-client area not rendered at all. Checked on every show because tao writes its
+    /// styles back whenever one of its window flags changes.
+    fn frameless(h: HWND) {
+        use windows::Win32::Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMNCRP_DISABLED, DWMWA_NCRENDERING_POLICY,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GWL_STYLE, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        };
+        // SAFETY: style queries/updates and a DWM attribute on our own window.
+        unsafe {
+            let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
+            let want = popup_style(style);
+            if want != style {
+                SetWindowLongPtrW(h, GWL_STYLE, want as i32 as isize);
+                let _ = SetWindowPos(
+                    h,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+            let disabled = DWMNCRP_DISABLED;
+            let _ = DwmSetWindowAttribute(
+                h,
+                DWMWA_NCRENDERING_POLICY,
+                &disabled as *const _ as *const _,
+                std::mem::size_of_val(&disabled) as u32,
+            );
         }
     }
 
     pub fn show(w: &WebviewWindow, position: PillPosition, caption: bool) {
         let Some(h) = hwnd(w) else { return };
+        frameless(h);
         // SAFETY: plain Win32 queries and a positioning call on our own window.
         unsafe {
             let fg = GetForegroundWindow();
@@ -165,6 +218,18 @@ mod tests {
             && r.top >= work.top + margin
             && r.right <= work.right - margin
             && r.bottom <= work.bottom - margin
+    }
+
+    #[test]
+    fn the_pill_window_keeps_no_title_bar_styles() {
+        // What tao gives an undecorated window: caption, system menu, sizing frame,
+        // minimise and maximise boxes, clip-siblings, visible.
+        let tao = 0x14CB_0000;
+        let style = popup_style(tao);
+        assert_eq!(style & 0x00CF_0000, 0, "title-bar and frame bits removed");
+        assert_eq!(style & 0x8000_0000, 0x8000_0000, "a pop-up window");
+        assert_eq!(style & 0x1400_0000, 0x1400_0000, "visible and clip-siblings kept");
+        assert_eq!(popup_style(style), style, "applying it again changes nothing");
     }
 
     #[test]
