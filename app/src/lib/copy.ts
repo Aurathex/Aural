@@ -30,6 +30,16 @@ export function hasJargon(s: string): boolean {
   return JARGON_RE.some((re) => re.test(s));
 }
 
+/** The two AI tidy-up options on the Writing page (both off unless chosen). */
+export const REWORD_WORDS = {
+  title: "Let AI improve wording",
+  desc: "Fixes grammar and awkward wording, so it may add, drop or change words. It can change what you said slightly, so check important messages. Links, email addresses and code stay exactly as said.",
+} as const;
+export const REWORD_NUMBERS = {
+  title: "Let AI rewrite numbers",
+  desc: "Writes numbers, amounts and times as digits, e.g. “one hundred and eighty dollars” becomes “$180”. Links, email addresses and code stay exactly as said.",
+} as const;
+
 /** Removes `{…}` expressions, including nested braces. */
 function stripBraces(s: string): string {
   let out = "";
@@ -222,7 +232,7 @@ export function cleanupText(mode: import("./types").CleanupMode): string {
     case "light":
       return "Removes \u201cum\u201d, \u201cuh\u201d and slips like \u201cthe the\u201d, fixes spacing and capitals, and ends sentences with a full stop or a question mark. No AI; your words stay the same.";
     case "ai":
-      return "The light tidy-up, then a writing helper on this PC may improve punctuation and capitals. It is not allowed to change your words, numbers, links or code; if it tries, the light tidy-up is used instead.";
+      return "The light tidy-up, then a writing helper on this PC may improve punctuation and capitals. It may not change your words or numbers unless you allow it below, and never links, email addresses or code; if it tries, the light tidy-up is used instead.";
   }
 }
 

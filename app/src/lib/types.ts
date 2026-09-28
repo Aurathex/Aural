@@ -11,7 +11,13 @@ export interface Settings {
   startup: { launch_at_login: boolean };
   ui: { pill_position: PillPosition; sounds: boolean };
   live: { enabled: boolean };
-  text: { cleanup: CleanupMode; dictionary: boolean; ai_model: string | null };
+  text: {
+    cleanup: CleanupMode;
+    dictionary: boolean;
+    ai_model: string | null;
+    ai_reword_words: boolean;
+    ai_reword_numbers: boolean;
+  };
   apps: AppProfile[];
   history: { enabled: boolean; keep_days: number; stats: boolean };
 }

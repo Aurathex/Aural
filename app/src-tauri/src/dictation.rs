@@ -18,6 +18,7 @@ const SUCCESS_MS: u64 = 700;
 /// AI tidies the text (AI tidy-up only).
 pub const TRANSCRIBING: &str = "Transcribing…";
 pub const AI_TIDYING: &str = "AI tidying up…";
+pub const AI_REWORDING: &str = "AI rewording…";
 const ERROR_MS: u64 = 2_500;
 const RATE: u32 = 16_000;
 

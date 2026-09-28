@@ -202,6 +202,16 @@ describe("live text wording", () => {
 });
 
 describe("writing and history wording", () => {
+  it("says plainly what each reword option lets the AI change", async () => {
+    const { REWORD_WORDS, REWORD_NUMBERS } = await import("./copy");
+    for (const o of [REWORD_WORDS, REWORD_NUMBERS]) {
+      expect(hasJargon(o.title + " " + o.desc), o.title).toBe(false);
+      expect(o.desc).toMatch(/links, email addresses and code stay exactly/i);
+    }
+    expect(REWORD_WORDS.desc).toMatch(/can change what you said/);
+    expect(REWORD_NUMBERS.desc).toMatch(/\$180/);
+  });
+
   it("explains each cleanup mode without jargon", async () => {
     const { cleanupText, KEEP_OPTIONS, keepText, appLabel, spokenTime } = await import("./copy");
     for (const m of ["off", "light", "ai"] as const) {

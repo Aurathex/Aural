@@ -79,8 +79,9 @@ pub fn accept_rewrite(
     answer: &str,
     entries: &[dictionary::Entry],
     use_dictionary: bool,
+    allow: rewrite::Allow,
 ) -> Result<String, rewrite::Rejected> {
-    let ok = rewrite::check(prepared, answer)?;
+    let ok = rewrite::check_with(prepared, answer, allow)?;
     Ok(if use_dictionary {
         dictionary::apply(entries, &ok)
     } else {
@@ -127,6 +128,7 @@ mod tests {
             "Email aurathex today.",
             &dict(),
             true,
+            rewrite::Allow::default(),
         );
         assert_eq!(got.unwrap(), "Email Aurathex today.");
     }

@@ -5,6 +5,7 @@
 use crate::state::{lock, App};
 use aural_core::settings::{CleanupMode, Settings};
 use aural_text::profile::{self, Effective};
+use aural_text::rewrite::Allow;
 use aural_text::Words;
 use std::sync::Arc;
 
@@ -26,8 +27,12 @@ pub fn polish(
     words: &Words,
     app: &str,
     raw: &str,
-    rewrite: impl FnOnce(&str) -> Option<String>,
+    rewrite: impl FnOnce(&str, Allow) -> Option<String>,
 ) -> Polished {
+    let allow = Allow {
+        words: settings.text.ai_reword_words,
+        numbers: settings.text.ai_reword_numbers,
+    };
     let effective = profile::resolve(settings, app);
     let prepared =
         aural_text::prepare(raw, &words.entries, effective.dictionary, effective.cleanup);
@@ -35,8 +40,8 @@ pub fn polish(
         aural_text::prepare(raw, &words.entries, effective.dictionary, CleanupMode::Off);
     let mut rewritten = false;
     let text = if effective.cleanup == CleanupMode::Ai && !prepared.trim().is_empty() {
-        match rewrite(&prepared).map(|a| {
-            aural_text::accept_rewrite(&prepared, &a, &words.entries, effective.dictionary)
+        match rewrite(&prepared, allow).map(|a| {
+            aural_text::accept_rewrite(&prepared, &a, &words.entries, effective.dictionary, allow)
         }) {
             Some(Ok(t)) => {
                 rewritten = true;
@@ -190,7 +195,7 @@ mod tests {
             &words(),
             "",
             "um aura thex",
-            |_| panic!("no model call"),
+            |_, _| panic!("no model call"),
         );
         assert_eq!(p.text, "um Aurathex");
         assert!(!p.cleaned && !p.rewritten);
@@ -203,7 +208,7 @@ mod tests {
             &words(),
             "",
             "um, aura thex rocks",
-            |_| panic!("no model call"),
+            |_, _| panic!("no model call"),
         );
         assert_eq!(p.text, "Aurathex rocks");
         assert!(p.cleaned);
@@ -216,7 +221,7 @@ mod tests {
             &words(),
             "",
             "the meeting is at 3pm",
-            |t| {
+            |t, _| {
                 assert_eq!(t, "The meeting is at 3pm.");
                 Some("The meeting is at 3pm.".into())
             },
@@ -232,11 +237,13 @@ mod tests {
             &words(),
             "",
             "the meeting is at 3pm",
-            |_| Some("The meeting is at 4pm.".into()),
+            |_, _| Some("The meeting is at 4pm.".into()),
         );
         assert_eq!(changed.text, "The meeting is at 3pm.");
         assert!(!changed.rewritten);
-        let none = polish(&settings(CleanupMode::Ai), &words(), "", "um hi", |_| None);
+        let none = polish(&settings(CleanupMode::Ai), &words(), "", "um hi", |_, _| {
+            None
+        });
         assert_eq!(none.text, "Hi");
     }
 
@@ -248,17 +255,60 @@ mod tests {
             &words(),
             "",
             "um so the meeting is at 3pm",
-            |t| {
+            |t, _| {
                 calls.push(t.to_owned());
                 None
             },
         );
         assert_eq!(calls, vec!["So the meeting is at 3pm.".to_string()]);
         assert_eq!(p.text, "So the meeting is at 3pm.");
-        let p = polish(&settings(CleanupMode::Ai), &words(), "", "um uh", |_| {
+        let p = polish(&settings(CleanupMode::Ai), &words(), "", "um uh", |_, _| {
             panic!("no model call for nothing")
         });
         assert_eq!(p.text, "");
+    }
+
+    #[test]
+    fn the_reword_options_reach_the_model_and_the_check() {
+        let mut s = settings(CleanupMode::Ai);
+        let reword = "He and I were going to pay $180.";
+        // Off by default: a reworded answer is refused and the Light result is typed.
+        let p = polish(
+            &s,
+            &words(),
+            "",
+            "me and him was gonna pay 180 dollars",
+            |_, allow| {
+                assert_eq!(allow, Allow::default());
+                Some(reword.into())
+            },
+        );
+        assert_eq!(p.text, "Me and him was gonna pay 180 dollars.");
+        // Both on: the model is told so, and the answer is accepted.
+        s.text.ai_reword_words = true;
+        s.text.ai_reword_numbers = true;
+        let p = polish(
+            &s,
+            &words(),
+            "",
+            "me and him was gonna pay 180 dollars",
+            |_, allow| {
+                assert!(allow.words && allow.numbers);
+                Some(reword.into())
+            },
+        );
+        assert_eq!(p.text, reword);
+        assert!(p.rewritten);
+        // Words only: the amount must stay as said.
+        s.text.ai_reword_numbers = false;
+        let p = polish(
+            &s,
+            &words(),
+            "",
+            "me and him was gonna pay 180 dollars",
+            |_, _| Some(reword.into()),
+        );
+        assert!(!p.rewritten);
     }
 
     #[test]
@@ -270,9 +320,13 @@ mod tests {
                 cleanup: Some(mode),
                 ..Default::default()
             });
-            let p = polish(&s, &words(), "Code.exe", "um run the tests again", |_| {
-                panic!("{mode:?} must not call the model")
-            });
+            let p = polish(
+                &s,
+                &words(),
+                "Code.exe",
+                "um run the tests again",
+                |_, _| panic!("{mode:?} must not call the model"),
+            );
             let want = if mode == CleanupMode::Off {
                 "um run the tests again"
             } else {
@@ -297,7 +351,7 @@ mod tests {
             &words(),
             "windowsterminal.exe",
             "um git status aura thex",
-            |_| None,
+            |_, _| None,
         );
         assert_eq!(p.text, "um git status aura thex");
         let p = polish(
@@ -305,7 +359,7 @@ mod tests {
             &words(),
             "notepad.exe",
             "um git status aura thex",
-            |_| None,
+            |_, _| None,
         );
         assert_eq!(p.text, "Git status Aurathex.");
     }

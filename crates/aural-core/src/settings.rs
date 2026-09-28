@@ -141,6 +141,10 @@ pub struct TextSettings {
     pub dictionary: bool,
     /// Catalog id of the downloaded text model used by AI cleanup.
     pub ai_model: Option<String>,
+    /// AI cleanup may improve grammar and wording (add, drop or change words).
+    pub ai_reword_words: bool,
+    /// AI cleanup may rewrite numbers ("one hundred and eighty dollars" → "$180").
+    pub ai_reword_numbers: bool,
 }
 
 impl Default for TextSettings {
@@ -149,6 +153,8 @@ impl Default for TextSettings {
             cleanup: CleanupMode::Off,
             dictionary: true,
             ai_model: None,
+            ai_reword_words: false,
+            ai_reword_numbers: false,
         }
     }
 }
@@ -265,6 +271,17 @@ mod tests {
         assert_eq!(s.audio.device, None);
         assert_eq!(s.stt.active_model, None);
         assert_eq!(s.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn ai_rewording_is_off_unless_chosen_also_for_older_settings_files() {
+        let s = Settings::default();
+        assert!(!s.text.ai_reword_words && !s.text.ai_reword_numbers);
+        let old: TextSettings = serde_json::from_str(r#"{"cleanup":"ai"}"#).unwrap();
+        assert!(!old.ai_reword_words && !old.ai_reword_numbers);
+        let on: TextSettings =
+            serde_json::from_str(r#"{"ai_reword_words":true,"ai_reword_numbers":true}"#).unwrap();
+        assert!(on.ai_reword_words && on.ai_reword_numbers);
     }
 
     #[test]

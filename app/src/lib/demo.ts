@@ -38,7 +38,7 @@ const settings: Settings = {
   startup: { launch_at_login: false },
   ui: { pill_position: "bottom", sounds: true },
   live: { enabled: true },
-  text: { cleanup: "light", dictionary: true, ai_model: null },
+  text: { cleanup: "light", dictionary: true, ai_model: null, ai_reword_words: false, ai_reword_numbers: false },
   apps: [{ app: "windowsterminal.exe", cleanup: "off", dictionary: null, live: null, history: null }],
   history: { enabled: true, keep_days: 30, stats: true },
 };

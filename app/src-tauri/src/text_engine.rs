@@ -130,13 +130,13 @@ impl TextHost {
     /// The model's rewrite of `text`, or None when no model is ready or it failed. After
     /// a timeout or crash the worker is stopped and the status set to Off, so the next
     /// `reload_text_engine` starts a fresh one.
-    pub fn rewrite(&self, text: &str) -> Option<String> {
+    pub fn rewrite(&self, text: &str, allow: aural_text::rewrite::Allow) -> Option<String> {
         use aural_text::rewrite;
         let mut guard = self.client.lock().ok()?;
         let client = guard.as_mut()?;
         let result = client.generate(
-            rewrite::SYSTEM,
-            &rewrite::examples(),
+            &rewrite::system(allow),
+            &rewrite::examples_for(allow),
             &rewrite::user_prompt(text),
             rewrite::max_tokens(text),
             REWRITE_TIMEOUT,

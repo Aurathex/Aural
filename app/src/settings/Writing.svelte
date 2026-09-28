@@ -1,6 +1,6 @@
 <script lang="ts">
   import { call } from "../lib/api";
-  import { appLabel, cleanupText } from "../lib/copy";
+  import { appLabel, cleanupText, REWORD_NUMBERS, REWORD_WORDS } from "../lib/copy";
   import { formatBytes } from "../lib/format";
   import type { AppProfile, AppState, CleanupMode, DictionaryEntry, Settings } from "../lib/types";
 
@@ -28,6 +28,8 @@
 
   const setCleanup = (cleanup: CleanupMode) =>
     save({ ...app.settings, text: { ...app.settings.text, cleanup } });
+  const setReword = (key: "ai_reword_words" | "ai_reword_numbers") =>
+    save({ ...app.settings, text: { ...app.settings.text, [key]: !app.settings.text[key] } });
   const setDictionaryOn = () =>
     save({ ...app.settings, text: { ...app.settings.text, dictionary: !app.settings.text.dictionary } });
 
@@ -96,6 +98,28 @@
           {/each}
         </div>
       </div>
+      {#if app.settings.text.cleanup === "ai"}
+        {#each [
+          { key: "ai_reword_words", copy: REWORD_WORDS },
+          { key: "ai_reword_numbers", copy: REWORD_NUMBERS },
+        ] as const as o (o.key)}
+          <div class="row">
+            <div class="text">
+              <div class="title">{o.copy.title}</div>
+              <div class="desc">{o.copy.desc}</div>
+            </div>
+            <div class="control">
+              <button
+                class="switch"
+                role="switch"
+                aria-checked={app.settings.text[o.key]}
+                aria-label={o.copy.title}
+                onclick={() => setReword(o.key)}
+              ></button>
+            </div>
+          </div>
+        {/each}
+      {/if}
       {#if helper}
         <div class="row">
           <div class="text">

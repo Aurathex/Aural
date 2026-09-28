@@ -54,7 +54,14 @@ const BENCH: &[&str] = &[
 #[ignore]
 fn ai_cleanup_model_comparison() {
     let dirs = std::env::var("AURAL_TEST_LLM_DIRS").unwrap();
-    let examples = rewrite::examples();
+    // AURAL_TEST_ALLOW=words,numbers compares with the Writing page's reword options on.
+    let opts = std::env::var("AURAL_TEST_ALLOW").unwrap_or_default();
+    let allow = rewrite::Allow {
+        words: opts.contains("words"),
+        numbers: opts.contains("numbers"),
+    };
+    let system = rewrite::system(allow);
+    let examples = rewrite::examples_for(allow);
     for dir in dirs.split(';').filter(|d| !d.is_empty()) {
         let mut c = SttClient::spawn(WorkerSpec {
             exe: PathBuf::from(env!("CARGO_BIN_EXE_aural-stt-onnx")),
@@ -80,7 +87,7 @@ fn ai_cleanup_model_comparison() {
             let t = std::time::Instant::now();
             let answer = c
                 .generate(
-                    rewrite::SYSTEM,
+                    &system,
                     &examples,
                     &rewrite::user_prompt(&prepared),
                     rewrite::max_tokens(&prepared),
@@ -88,7 +95,7 @@ fn ai_cleanup_model_comparison() {
                 )
                 .unwrap_or_else(|e| format!("<error {e}>"));
             times.push(t.elapsed().as_millis());
-            match aural_text::accept_rewrite(&prepared, &answer, &[], false) {
+            match aural_text::accept_rewrite(&prepared, &answer, &[], false, allow) {
                 Ok(text) => {
                     accepted += 1;
                     let changed = text != prepared;
@@ -144,7 +151,7 @@ fn ai_cleanup_battery_through_the_worker() {
             .unwrap();
         let ms = t.elapsed().as_millis();
         total_ms += ms;
-        match aural_text::accept_rewrite(&prepared, &answer, &[], false) {
+        match aural_text::accept_rewrite(&prepared, &answer, &[], false, Default::default()) {
             Ok(text) => {
                 accepted += 1;
                 eprintln!("{ms:>5} ms  OK   {text}");
