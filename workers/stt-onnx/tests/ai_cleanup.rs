@@ -69,7 +69,10 @@ fn ai_cleanup_model_comparison() {
                 continue;
             }
         };
-        eprintln!("== {label} ({dir}): loaded in {} ms", t0.elapsed().as_millis());
+        eprintln!(
+            "== {label} ({dir}): loaded in {} ms",
+            t0.elapsed().as_millis()
+        );
         let (mut accepted, mut better, mut times) = (0, 0, Vec::new());
         let mut reasons: std::collections::BTreeMap<String, usize> = Default::default();
         for case in BENCH {
@@ -93,7 +96,11 @@ fn ai_cleanup_model_comparison() {
                     eprintln!("  OK{} {text}", if changed { "+" } else { " " });
                 }
                 Err(why) => {
-                    let key = format!("{why:?}").split('(').next().unwrap_or("").to_owned();
+                    let key = format!("{why:?}")
+                        .split('(')
+                        .next()
+                        .unwrap_or("")
+                        .to_owned();
                     *reasons.entry(key).or_default() += 1;
                     eprintln!("  NO  {answer:?} ({why})\n      light: {prepared:?}");
                 }

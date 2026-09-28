@@ -157,7 +157,10 @@ fn inserts_into_a_real_edit_control() {
     let rich = ClipboardSnapshot::from_items(vec![
         (
             13,
-            "copied\0".encode_utf16().flat_map(|u| u.to_le_bytes()).collect(),
+            "copied\0"
+                .encode_utf16()
+                .flat_map(|u| u.to_le_bytes())
+                .collect(),
         ),
         (html, b"Version:0.9\r\n<b>copied</b>\0".to_vec()),
     ]);

@@ -1032,14 +1032,26 @@ mod tests {
         assert_eq!(save_kind(CF_UNICODETEXT, &present), SaveKind::Bytes);
         assert_eq!(save_kind(HTML, &present), SaveKind::Bytes);
         assert_eq!(save_kind(CF_LOCALE, &present), SaveKind::Bytes);
-        assert_eq!(save_kind(15 /* CF_HDROP: copied files */, &[15]), SaveKind::Bytes);
+        assert_eq!(
+            save_kind(15 /* CF_HDROP: copied files */, &[15]),
+            SaveKind::Bytes
+        );
     }
 
     #[test]
     fn formats_windows_makes_from_another_are_not_saved_twice() {
-        assert_eq!(save_kind(CF_TEXT, &[CF_UNICODETEXT, CF_TEXT]), SaveKind::Synthesized);
-        assert_eq!(save_kind(CF_BITMAP, &[CF_BITMAP, CF_DIB]), SaveKind::Synthesized);
-        assert_eq!(save_kind(CF_PALETTE, &[CF_DIB, CF_PALETTE]), SaveKind::Synthesized);
+        assert_eq!(
+            save_kind(CF_TEXT, &[CF_UNICODETEXT, CF_TEXT]),
+            SaveKind::Synthesized
+        );
+        assert_eq!(
+            save_kind(CF_BITMAP, &[CF_BITMAP, CF_DIB]),
+            SaveKind::Synthesized
+        );
+        assert_eq!(
+            save_kind(CF_PALETTE, &[CF_DIB, CF_PALETTE]),
+            SaveKind::Synthesized
+        );
         assert_eq!(
             save_kind(CF_METAFILEPICT, &[CF_ENHMETAFILE, CF_METAFILEPICT]),
             SaveKind::Synthesized
@@ -1050,11 +1062,23 @@ mod tests {
 
     #[test]
     fn drawings_are_saved_and_handles_aural_cannot_copy_are_reported() {
-        assert_eq!(save_kind(CF_ENHMETAFILE, &[CF_ENHMETAFILE]), SaveKind::EnhMetafile);
+        assert_eq!(
+            save_kind(CF_ENHMETAFILE, &[CF_ENHMETAFILE]),
+            SaveKind::EnhMetafile
+        );
         assert_eq!(save_kind(CF_BITMAP, &[CF_BITMAP]), SaveKind::Unsupported);
-        assert_eq!(save_kind(0x0080 /* CF_OWNERDISPLAY */, &[0x0080]), SaveKind::Unsupported);
-        assert_eq!(save_kind(0x0200 /* CF_PRIVATEFIRST */, &[0x0200]), SaveKind::Unsupported);
-        assert_eq!(save_kind(0x0300 /* CF_GDIOBJFIRST */, &[0x0300]), SaveKind::Unsupported);
+        assert_eq!(
+            save_kind(0x0080 /* CF_OWNERDISPLAY */, &[0x0080]),
+            SaveKind::Unsupported
+        );
+        assert_eq!(
+            save_kind(0x0200 /* CF_PRIVATEFIRST */, &[0x0200]),
+            SaveKind::Unsupported
+        );
+        assert_eq!(
+            save_kind(0x0300 /* CF_GDIOBJFIRST */, &[0x0300]),
+            SaveKind::Unsupported
+        );
     }
 
     #[test]
@@ -1192,7 +1216,10 @@ mod tests {
                 (13, text),
                 (register_format("HTML Format"), html),
                 (8, dib),
-                (register_format("Aural Test Format"), b"app data \x01\x02".to_vec()),
+                (
+                    register_format("Aural Test Format"),
+                    b"app data \x01\x02".to_vec(),
+                ),
             ])
         }
 
@@ -1247,8 +1274,13 @@ mod tests {
             set_clipboard_text("previous clipboard", false).unwrap();
             let saved = snapshot_clipboard().unwrap();
             let mut press = || -> anyhow::Result<()> { Ok(()) };
-            let got = paste_and_restore("dictated text", &saved, &mut press, Duration::from_millis(300))
-                .unwrap();
+            let got = paste_and_restore(
+                "dictated text",
+                &saved,
+                &mut press,
+                Duration::from_millis(300),
+            )
+            .unwrap();
             assert_eq!(got, PasteResult::Ignored);
             // The transcript now sits there with Aural's privacy markers.
             assert!(snapshot_clipboard().unwrap().complete);

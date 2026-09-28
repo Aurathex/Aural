@@ -228,8 +228,16 @@ mod tests {
         let style = popup_style(tao);
         assert_eq!(style & 0x00CF_0000, 0, "title-bar and frame bits removed");
         assert_eq!(style & 0x8000_0000, 0x8000_0000, "a pop-up window");
-        assert_eq!(style & 0x1400_0000, 0x1400_0000, "visible and clip-siblings kept");
-        assert_eq!(popup_style(style), style, "applying it again changes nothing");
+        assert_eq!(
+            style & 0x1400_0000,
+            0x1400_0000,
+            "visible and clip-siblings kept"
+        );
+        assert_eq!(
+            popup_style(style),
+            style,
+            "applying it again changes nothing"
+        );
     }
 
     #[test]

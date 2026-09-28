@@ -77,8 +77,8 @@ pub fn light(text: &str) -> String {
 /// Small words said twice by accident ("to the the team"). Words that can be doubled on
 /// purpose ("very very", "had had", "that that", "bye bye") are not in the list.
 const STUTTERS: &[&str] = &[
-    "the", "a", "an", "to", "of", "and", "or", "but", "i", "we", "you", "they", "he", "she",
-    "my", "your", "our", "in", "on", "at", "for", "with", "from",
+    "the", "a", "an", "to", "of", "and", "or", "but", "i", "we", "you", "they", "he", "she", "my",
+    "your", "our", "in", "on", "at", "for", "with", "from",
 ];
 
 fn drop_stutters(text: &str) -> String {
@@ -102,8 +102,8 @@ fn drop_stutters(text: &str) -> String {
 
 /// Words after which a full stop does not end the sentence.
 const ABBREVIATIONS: &[&str] = &[
-    "mr", "mrs", "ms", "dr", "prof", "st", "vs", "etc", "jr", "sr", "inc", "ltd", "no",
-    "approx", "dept", "fig",
+    "mr", "mrs", "ms", "dr", "prof", "st", "vs", "etc", "jr", "sr", "inc", "ltd", "no", "approx",
+    "dept", "fig",
 ];
 
 /// A capital at the start of each sentence, unless that word is protected ("iPhone").
@@ -162,16 +162,65 @@ fn is_literal(token: &str) -> bool {
         || (t.contains('.') && t.split('.').any(|p| p.chars().any(char::is_alphabetic)))
 }
 
-const QUESTION_WORDS: &[&str] = &["what", "why", "how", "when", "where", "who", "which", "whose", "whom"];
+const QUESTION_WORDS: &[&str] = &[
+    "what", "why", "how", "when", "where", "who", "which", "whose", "whom",
+];
 const AUXILIARIES: &[&str] = &[
-    "is", "are", "am", "was", "were", "can", "could", "would", "should", "will", "shall", "may",
-    "might", "must", "do", "does", "did", "have", "has", "had", "isn't", "aren't", "wasn't",
-    "weren't", "can't", "couldn't", "wouldn't", "shouldn't", "won't", "don't", "doesn't",
-    "didn't", "haven't", "hasn't",
+    "is",
+    "are",
+    "am",
+    "was",
+    "were",
+    "can",
+    "could",
+    "would",
+    "should",
+    "will",
+    "shall",
+    "may",
+    "might",
+    "must",
+    "do",
+    "does",
+    "did",
+    "have",
+    "has",
+    "had",
+    "isn't",
+    "aren't",
+    "wasn't",
+    "weren't",
+    "can't",
+    "couldn't",
+    "wouldn't",
+    "shouldn't",
+    "won't",
+    "don't",
+    "doesn't",
+    "didn't",
+    "haven't",
+    "hasn't",
 ];
 const SUBJECTS: &[&str] = &[
-    "i", "you", "we", "they", "he", "she", "it", "there", "this", "that", "these", "those",
-    "anyone", "anybody", "someone", "somebody", "everyone", "everybody", "y'all",
+    "i",
+    "you",
+    "we",
+    "they",
+    "he",
+    "she",
+    "it",
+    "there",
+    "this",
+    "that",
+    "these",
+    "those",
+    "anyone",
+    "anybody",
+    "someone",
+    "somebody",
+    "everyone",
+    "everybody",
+    "y'all",
 ];
 
 /// Only the clear question forms: "can you …", "is it …", "do we …", "what time is it",
@@ -216,9 +265,17 @@ fn end_sentence(text: &str) -> String {
     let sentence_start = words
         .windows(2)
         .rev()
-        .find(|p| body[p[0].range.end..p[1].range.start].trim_end().ends_with(['.', '!', '?']))
+        .find(|p| {
+            body[p[0].range.end..p[1].range.start]
+                .trim_end()
+                .ends_with(['.', '!', '?'])
+        })
         .map_or(0, |p| p[1].range.start);
-    let mark = if is_question(&body[sentence_start..]) { '?' } else { '.' };
+    let mark = if is_question(&body[sentence_start..]) {
+        '?'
+    } else {
+        '.'
+    };
     format!("{body}{mark}")
 }
 
@@ -268,20 +325,41 @@ mod tests {
 
     #[test]
     fn a_plain_sentence_gets_a_full_stop() {
-        assert_eq!(light("um so the meeting is at 3pm"), "So the meeting is at 3pm.");
-        assert_eq!(light("please send the report to Maria"), "Please send the report to Maria.");
+        assert_eq!(
+            light("um so the meeting is at 3pm"),
+            "So the meeting is at 3pm."
+        );
+        assert_eq!(
+            light("please send the report to Maria"),
+            "Please send the report to Maria."
+        );
     }
 
     #[test]
     fn questions_get_a_question_mark_only_when_clearly_asked() {
-        assert_eq!(light("can you send me the report"), "Can you send me the report?");
-        assert_eq!(light("what time is it in Tokyo"), "What time is it in Tokyo?");
+        assert_eq!(
+            light("can you send me the report"),
+            "Can you send me the report?"
+        );
+        assert_eq!(
+            light("what time is it in Tokyo"),
+            "What time is it in Tokyo?"
+        );
         assert_eq!(light("how are you doing today"), "How are you doing today?");
         assert_eq!(light("do you want the red one"), "Do you want the red one?");
         // A question word that starts a statement, and commands, stay statements.
-        assert_eq!(light("when I get home I will call"), "When I get home I will call.");
-        assert_eq!(light("do the dishes before dinner"), "Do the dishes before dinner.");
-        assert_eq!(light("what a great idea that was"), "What a great idea that was.");
+        assert_eq!(
+            light("when I get home I will call"),
+            "When I get home I will call."
+        );
+        assert_eq!(
+            light("do the dishes before dinner"),
+            "Do the dishes before dinner."
+        );
+        assert_eq!(
+            light("what a great idea that was"),
+            "What a great idea that was."
+        );
     }
 
     #[test]
@@ -290,7 +368,10 @@ mod tests {
         assert_eq!(light("is it done?"), "Is it done?");
         assert_eq!(light("and then it stopped..."), "And then it stopped...");
         assert_eq!(light("we shipped it."), "We shipped it.");
-        assert_eq!(light("she said \"call me later.\""), "She said \"call me later.\"");
+        assert_eq!(
+            light("she said \"call me later.\""),
+            "She said \"call me later.\""
+        );
         // Nothing invents an exclamation.
         assert_eq!(light("wow that is great news"), "Wow that is great news.");
     }
@@ -312,39 +393,81 @@ mod tests {
             light("bring fruit e.g. apples and pears for the team"),
             "Bring fruit e.g. apples and pears for the team."
         );
-        assert_eq!(light("talk to dr. smith about it"), "Talk to dr. smith about it.");
+        assert_eq!(
+            light("talk to dr. smith about it"),
+            "Talk to dr. smith about it."
+        );
     }
 
     #[test]
     fn numbers_addresses_code_and_paths_are_never_changed_or_punctuated_into() {
-        assert_eq!(light("the total is $1,299.50 for 3 units"), "The total is $1,299.50 for 3 units.");
-        assert_eq!(light("the docs are at https://aurathex.com/docs"), "The docs are at https://aurathex.com/docs");
-        assert_eq!(light("email me at dave@example.com"), "Email me at dave@example.com");
-        assert_eq!(light("open the file src/main.rs"), "Open the file src/main.rs");
-        assert_eq!(light("then run `cargo test --lib`"), "Then run `cargo test --lib`");
-        assert_eq!(light("rename it to fetch_user_id"), "Rename it to fetch_user_id");
-        assert_eq!(light("uh version 1.2.3 is out now"), "Version 1.2.3 is out now.");
+        assert_eq!(
+            light("the total is $1,299.50 for 3 units"),
+            "The total is $1,299.50 for 3 units."
+        );
+        assert_eq!(
+            light("the docs are at https://aurathex.com/docs"),
+            "The docs are at https://aurathex.com/docs"
+        );
+        assert_eq!(
+            light("email me at dave@example.com"),
+            "Email me at dave@example.com"
+        );
+        assert_eq!(
+            light("open the file src/main.rs"),
+            "Open the file src/main.rs"
+        );
+        assert_eq!(
+            light("then run `cargo test --lib`"),
+            "Then run `cargo test --lib`"
+        );
+        assert_eq!(
+            light("rename it to fetch_user_id"),
+            "Rename it to fetch_user_id"
+        );
+        assert_eq!(
+            light("uh version 1.2.3 is out now"),
+            "Version 1.2.3 is out now."
+        );
     }
 
     #[test]
     fn technical_terms_keep_their_case() {
-        assert_eq!(light("the iPhone uses USB-C now"), "The iPhone uses USB-C now.");
-        assert_eq!(light("iOS and macOS both updated"), "iOS and macOS both updated.");
+        assert_eq!(
+            light("the iPhone uses USB-C now"),
+            "The iPhone uses USB-C now."
+        );
+        assert_eq!(
+            light("iOS and macOS both updated"),
+            "iOS and macOS both updated."
+        );
     }
 
     #[test]
     fn hesitation_letters_inside_real_words_are_left_alone() {
-        assert_eq!(light("the umbrella is by the door"), "The umbrella is by the door.");
-        assert_eq!(light("we rented a U-Haul and a hummer"), "We rented a U-Haul and a hummer.");
+        assert_eq!(
+            light("the umbrella is by the door"),
+            "The umbrella is by the door."
+        );
+        assert_eq!(
+            light("we rented a U-Haul and a hummer"),
+            "We rented a U-Haul and a hummer."
+        );
         assert_eq!(light("the drum uh broke"), "The drum broke.");
     }
 
     #[test]
     fn stutters_on_small_words_go_but_meaningful_doubles_stay() {
-        assert_eq!(light("send it to the the team today"), "Send it to the team today.");
+        assert_eq!(
+            light("send it to the the team today"),
+            "Send it to the team today."
+        );
         assert_eq!(light("I I think we should go"), "I think we should go.");
         assert_eq!(light("that was very very good"), "That was very very good.");
-        assert_eq!(light("she had had enough of it"), "She had had enough of it.");
+        assert_eq!(
+            light("she had had enough of it"),
+            "She had had enough of it."
+        );
         assert_eq!(light("bye bye for now"), "Bye bye for now.");
     }
 
@@ -354,8 +477,14 @@ mod tests {
             light("why does it crash when i rotate the phone"),
             "Why does it crash when I rotate the phone?"
         );
-        assert_eq!(light("i'm sure i'll be there if i can"), "I'm sure I'll be there if I can.");
-        assert_eq!(light("i’ve read it and i'd sign"), "I’ve read it and I'd sign.");
+        assert_eq!(
+            light("i'm sure i'll be there if i can"),
+            "I'm sure I'll be there if I can."
+        );
+        assert_eq!(
+            light("i’ve read it and i'd sign"),
+            "I’ve read it and I'd sign."
+        );
         // Not inside other words, code or addresses.
         assert_eq!(light("set i = 0 in the loop"), "Set i = 0 in the loop.");
         assert_eq!(light("the file is i/o bound"), "The file is i/o bound.");

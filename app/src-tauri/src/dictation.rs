@@ -612,7 +612,10 @@ mod tests {
         hold(&mut d, 1200);
         assert!(d.io.log.contains(&"polish \"um live\"".to_string()));
         // The final live text is tidied once, not once per update.
-        assert_eq!(d.io.log.iter().filter(|l| l.starts_with("polish")).count(), 1);
+        assert_eq!(
+            d.io.log.iter().filter(|l| l.starts_with("polish")).count(),
+            1
+        );
         assert_eq!(inserts(&d.io), vec!["insert \"Live\" into 77"]);
     }
 
