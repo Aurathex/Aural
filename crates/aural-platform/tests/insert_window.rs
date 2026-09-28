@@ -4,7 +4,8 @@
 #![cfg(windows)]
 
 use aural_platform::insert::{
-    insert, read_clipboard_text, set_clipboard_text, InsertOutcome, Reason,
+    insert, read_clipboard_text, register_format, restore_clipboard, set_clipboard_text,
+    snapshot_clipboard, ClipboardSnapshot, InsertOutcome, Reason,
 };
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -149,4 +150,31 @@ fn inserts_into_a_real_edit_control() {
         Some("SENTINEL"),
         "clipboard not restored"
     );
+
+    // 3. A clipboard copied from a browser (text + HTML) is pasted into, not typed over
+    //    (typing lost most characters in Windows 11 Notepad), and comes back whole.
+    let html = register_format("HTML Format");
+    let rich = ClipboardSnapshot::from_items(vec![
+        (
+            13,
+            "copied\0".encode_utf16().flat_map(|u| u.to_le_bytes()).collect(),
+        ),
+        (html, b"Version:0.9\r\n<b>copied</b>\0".to_vec()),
+    ]);
+    restore_clipboard(&rich).unwrap();
+    let long = " Then the quarterly report goes to Maria by Friday, with 3 charts.";
+    let out = insert(long, win.hwnd).unwrap();
+    assert_eq!(out, InsertOutcome::Inserted);
+    // Insertion trims, so it follows straight on.
+    let want = format!("Hello from Aural 👋 café.{}", long.trim());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while win.text() != want && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(win.text(), want);
+    let after = snapshot_clipboard().unwrap();
+    assert!(after
+        .bytes(html)
+        .is_some_and(|b| b.starts_with(b"Version:0.9\r\n<b>copied</b>")));
+    assert_eq!(read_clipboard_text().as_deref(), Some("copied"));
 }

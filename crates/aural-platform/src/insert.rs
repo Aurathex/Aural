@@ -37,8 +37,9 @@ pub enum Reason {
 pub enum Strategy {
     /// Put the text on the clipboard, press the paste chord, restore the clipboard.
     Paste(PasteChord),
-    /// Type the text as Unicode key events (used when the clipboard holds something we
-    /// could not restore, like an image).
+    /// Type the text as Unicode key events. Last resort, only when the clipboard could
+    /// not be saved (busy, or holding data Aural cannot copy): some apps, Windows 11
+    /// Notepad among them, drop most of a long burst of typed characters.
     Type,
     /// Leave the text on the clipboard for the user to paste.
     ClipboardOnly(Reason),
@@ -74,13 +75,50 @@ fn is_terminal(t: &TargetInfo) -> Option<PasteChord> {
     }
 }
 
+/// How one clipboard format is saved while Aural pastes, so it can be put back after.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveKind {
+    /// A memory block: text, HTML, RTF, images (DIB), copied files, apps' own formats.
+    Bytes,
+    /// An enhanced metafile (drawings from Office and others).
+    EnhMetafile,
+    /// Windows makes this format from another one on the clipboard; not saved itself.
+    Synthesized,
+    /// A handle Aural cannot copy (a bitmap or palette without a DIB, owner-drawn or
+    /// private data).
+    Unsupported,
+}
+
+/// How to save `format`, given every format on the clipboard (`present`).
+pub fn save_kind(format: u32, present: &[u32]) -> SaveKind {
+    const CF_DIB: u32 = 8;
+    const CF_UNICODETEXT: u32 = 13;
+    const CF_ENHMETAFILE: u32 = 14;
+    const CF_DIBV5: u32 = 17;
+    let has = |f: u32| present.contains(&f);
+    match format {
+        // CF_TEXT, CF_OEMTEXT from Unicode text.
+        1 | 7 if has(CF_UNICODETEXT) => SaveKind::Synthesized,
+        // CF_BITMAP, CF_PALETTE from a DIB.
+        2 | 9 if has(CF_DIB) || has(CF_DIBV5) => SaveKind::Synthesized,
+        // CF_METAFILEPICT from an enhanced metafile.
+        3 if has(CF_ENHMETAFILE) => SaveKind::Synthesized,
+        CF_ENHMETAFILE => SaveKind::EnhMetafile,
+        // Bitmap, metafile picture and palette handles on their own; owner-display
+        // formats; private and GDI-object ranges.
+        2 | 3 | 9 | 0x80 | 0x82 | 0x83 | 0x8E | 0x200..=0x3FF => SaveKind::Unsupported,
+        _ => SaveKind::Bytes,
+    }
+}
+
 /// Decide how to deliver text. `release_hwnd` is the window that had focus when the
 /// user released the hotkey; if focus moved since, typing would land in the wrong
-/// place, so the text goes to the clipboard instead.
+/// place, so the text goes to the clipboard instead. `clipboard_saved`: the whole
+/// clipboard was saved, so pasting can put it back afterwards.
 pub fn plan(
     target: &TargetInfo,
     release_hwnd: isize,
-    clipboard_restorable: bool,
+    clipboard_saved: bool,
     self_elevated: bool,
 ) -> InsertPlan {
     let terminal = is_terminal(target);
@@ -90,7 +128,7 @@ pub fn plan(
         Strategy::ClipboardOnly(Reason::FocusChanged)
     } else if target.elevated && !self_elevated {
         Strategy::ClipboardOnly(Reason::Elevated)
-    } else if !clipboard_restorable {
+    } else if !clipboard_saved {
         Strategy::Type
     } else {
         Strategy::Paste(terminal.unwrap_or(PasteChord::CtrlV))
@@ -137,9 +175,6 @@ mod win {
     };
 
     const CF_UNICODETEXT: u32 = 13;
-    const CF_TEXT: u32 = 1;
-    const CF_OEMTEXT: u32 = 7;
-    const CF_LOCALE: u32 = 16;
     /// How long an app may take to read pasted text (remote desktops can be slow).
     const PASTE_TIMEOUT: Duration = Duration::from_secs(3);
     /// Unassigned virtual key: pressing it stops Win/Alt releases from opening menus.
@@ -259,17 +294,72 @@ mod win {
         }
     }
 
-    /// What was on the clipboard before we used it.
+    /// A clipboard bigger than this is not saved (typing is used instead).
+    const MAX_SAVED_BYTES: usize = 64 << 20;
+    const CF_ENHMETAFILE: u32 = 14;
+
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ClipboardSnapshot {
-        pub text: Option<String>,
-        /// False when it held formats we cannot put back (images, files, rich data).
-        pub restorable: bool,
+    struct Saved {
+        format: u32,
+        metafile: bool,
+        data: Vec<u8>,
     }
 
+    /// Everything that was on the clipboard before Aural used it, in the order the
+    /// source app offered it.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ClipboardSnapshot {
+        items: Vec<Saved>,
+        /// Every format was saved, so the clipboard can be put back as it was.
+        pub complete: bool,
+    }
+
+    impl ClipboardSnapshot {
+        /// A clipboard holding just `text`.
+        pub fn text(text: &str) -> Self {
+            let bytes = text
+                .encode_utf16()
+                .chain(Some(0))
+                .flat_map(|u| u.to_le_bytes())
+                .collect();
+            Self::from_items(vec![(CF_UNICODETEXT, bytes)])
+        }
+
+        /// A clipboard holding these memory-block formats.
+        pub fn from_items(items: Vec<(u32, Vec<u8>)>) -> Self {
+            Self {
+                items: items
+                    .into_iter()
+                    .map(|(format, data)| Saved {
+                        format,
+                        metafile: false,
+                        data,
+                    })
+                    .collect(),
+                complete: true,
+            }
+        }
+
+        pub fn bytes(&self, format: u32) -> Option<&[u8]> {
+            self.items
+                .iter()
+                .find(|s| s.format == format)
+                .map(|s| s.data.as_slice())
+        }
+
+        pub fn byte_items(&self) -> impl Iterator<Item = (u32, &[u8])> {
+            self.items
+                .iter()
+                .filter(|s| !s.metafile)
+                .map(|s| (s.format, s.data.as_slice()))
+        }
+    }
+
+    /// Save the whole clipboard: text, HTML, RTF, images, copied files, drawings and
+    /// apps' own formats. `complete` is false when some of it could not be saved.
     pub fn snapshot_clipboard() -> Result<ClipboardSnapshot> {
         let _g = open_clipboard()?;
-        let mut restorable = true;
+        let mut present = Vec::new();
         let mut fmt = 0u32;
         loop {
             // SAFETY: clipboard is open.
@@ -277,14 +367,106 @@ mod win {
             if fmt == 0 {
                 break;
             }
-            if !matches!(fmt, CF_UNICODETEXT | CF_TEXT | CF_OEMTEXT | CF_LOCALE) {
-                restorable = false;
+            present.push(fmt);
+        }
+        let mut items = Vec::new();
+        let mut complete = true;
+        let mut total = 0usize;
+        for &format in &present {
+            // A format the source can no longer produce (GetClipboardData fails) could
+            // not be pasted by anyone either; it is skipped rather than blocking.
+            let saved = match save_kind(format, &present) {
+                SaveKind::Synthesized => continue,
+                SaveKind::Unsupported => {
+                    complete = false;
+                    continue;
+                }
+                SaveKind::Bytes => read_bytes_locked(format).map(|data| Saved {
+                    format,
+                    metafile: false,
+                    data,
+                }),
+                SaveKind::EnhMetafile => read_metafile_locked().map(|data| Saved {
+                    format,
+                    metafile: true,
+                    data,
+                }),
+            };
+            if let Some(s) = saved {
+                total += s.data.len();
+                items.push(s);
+            }
+            if total > MAX_SAVED_BYTES {
+                complete = false;
+                break;
             }
         }
-        Ok(ClipboardSnapshot {
-            text: read_text_locked(),
-            restorable,
-        })
+        Ok(ClipboardSnapshot { items, complete })
+    }
+
+    fn read_bytes_locked(format: u32) -> Option<Vec<u8>> {
+        use windows::Win32::System::Memory::GlobalSize;
+        // SAFETY: clipboard is open; the handle belongs to the clipboard and is only
+        // locked while copied. A handle that is not a memory block has size 0.
+        unsafe {
+            let h = GetClipboardData(format).ok()?;
+            let g = HGLOBAL(h.0);
+            let size = GlobalSize(g);
+            if size == 0 {
+                return None;
+            }
+            let p = GlobalLock(g) as *const u8;
+            if p.is_null() {
+                return None;
+            }
+            let data = std::slice::from_raw_parts(p, size).to_vec();
+            let _ = GlobalUnlock(g);
+            Some(data)
+        }
+    }
+
+    fn read_metafile_locked() -> Option<Vec<u8>> {
+        use windows::Win32::Graphics::Gdi::{GetEnhMetaFileBits, HENHMETAFILE};
+        // SAFETY: clipboard is open; the metafile belongs to the clipboard and is only
+        // read.
+        unsafe {
+            let h = HENHMETAFILE(GetClipboardData(CF_ENHMETAFILE).ok()?.0);
+            let size = GetEnhMetaFileBits(h, None) as usize;
+            if size == 0 {
+                return None;
+            }
+            let mut data = vec![0u8; size];
+            (GetEnhMetaFileBits(h, Some(&mut data)) as usize == size).then_some(data)
+        }
+    }
+
+    /// Put saved formats on the (open, emptied) clipboard.
+    fn write_saved_locked(snapshot: &ClipboardSnapshot) -> Result<()> {
+        use windows::Win32::Graphics::Gdi::SetEnhMetaFileBits;
+        for s in &snapshot.items {
+            // SAFETY: clipboard is open; ownership of the handle passes to it.
+            unsafe {
+                if s.metafile {
+                    let h = SetEnhMetaFileBits(&s.data);
+                    if !h.is_invalid() {
+                        let _ = SetClipboardData(s.format, Some(HANDLE(h.0)));
+                    }
+                } else {
+                    let g = global_from(&s.data)?;
+                    SetClipboardData(s.format, Some(HANDLE(g.0)))
+                        .with_context(|| format!("restoring clipboard format {}", s.format))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Replace the clipboard with `snapshot`.
+    pub fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<()> {
+        let _g = open_clipboard()?;
+        // SAFETY: clipboard is open.
+        unsafe { EmptyClipboard() }.context("emptying clipboard")?;
+        write_saved_locked(snapshot)
     }
 
     fn read_text_locked() -> Option<String> {
@@ -328,7 +510,7 @@ mod win {
         }
     }
 
-    fn register(name: &str) -> u32 {
+    pub fn register_format(name: &str) -> u32 {
         let w: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
         // SAFETY: NUL-terminated wide string.
         unsafe { RegisterClipboardFormatW(PCWSTR(w.as_ptr())) }
@@ -361,7 +543,7 @@ mod win {
                 ("CanIncludeInClipboardHistory", &zero[..]),
                 ("CanUploadToCloudClipboard", &zero[..]),
             ] {
-                let fmt = register(name);
+                let fmt = register_format(name);
                 if fmt != 0 {
                     if let Ok(g) = global_from(data) {
                         // SAFETY: as above.
@@ -641,7 +823,7 @@ mod win {
     /// has read the text. See `PasteResult`.
     pub fn paste_and_restore(
         text: &str,
-        previous: Option<String>,
+        previous: &ClipboardSnapshot,
         press: &mut dyn FnMut() -> Result<()>,
         timeout: Duration,
     ) -> Result<PasteResult> {
@@ -666,7 +848,7 @@ mod win {
                     "CanIncludeInClipboardHistory",
                     "CanUploadToCloudClipboard",
                 ] {
-                    let fmt = register(name);
+                    let fmt = register_format(name);
                     if fmt != 0 {
                         if let Ok(g) = global_from(&zero) {
                             let _ = SetClipboardData(fmt, Some(HANDLE(g.0)));
@@ -699,14 +881,7 @@ mod win {
             if owner.owns_clipboard() {
                 // SAFETY: clipboard open by our window.
                 unsafe { EmptyClipboard() }.context("emptying clipboard")?;
-                if let Some(prev) = previous {
-                    let wide: Vec<u16> = prev.encode_utf16().chain(Some(0)).collect();
-                    let bytes: Vec<u8> = wide.iter().flat_map(|u| u.to_le_bytes()).collect();
-                    let g = global_from(&bytes)?;
-                    // SAFETY: clipboard open; ownership of `g` transfers.
-                    unsafe { SetClipboardData(CF_UNICODETEXT, Some(HANDLE(g.0))) }
-                        .context("restoring clipboard text")?;
-                }
+                write_saved_locked(previous)?;
             }
             Ok(PasteResult::Read)
         } else {
@@ -729,14 +904,14 @@ mod win {
     }
 
     /// Deliver `text` to the focused app. The pasted text is never left in clipboard
-    /// history, and the user's previous clipboard text is restored afterwards.
+    /// history, and the user's previous clipboard (every format) is restored afterwards.
     pub fn insert(text: &str, release_hwnd: isize) -> Result<InsertOutcome> {
         let target = foreground_target();
         let snapshot = snapshot_clipboard().unwrap_or(ClipboardSnapshot {
-            text: None,
-            restorable: false,
+            items: Vec::new(),
+            complete: false,
         });
-        let p = plan(&target, release_hwnd, snapshot.restorable, self_elevated());
+        let p = plan(&target, release_hwnd, snapshot.complete, self_elevated());
         let text = p.apply(text);
         if text.is_empty() {
             return Ok(InsertOutcome::Inserted);
@@ -757,7 +932,7 @@ mod win {
                     send(&paste_inputs(chord))
                 };
                 // Restore happens only after the target has actually read the text.
-                match paste_and_restore(&text, snapshot.text, &mut press, PASTE_TIMEOUT)? {
+                match paste_and_restore(&text, &snapshot, &mut press, PASTE_TIMEOUT)? {
                     PasteResult::Read => Ok(InsertOutcome::Inserted),
                     PasteResult::Ignored => Ok(InsertOutcome::CopiedOnly(Reason::PasteIgnored)),
                 }
@@ -838,6 +1013,50 @@ mod tests {
         assert_eq!(p.strategy, Strategy::Type);
     }
 
+    // Formats Aural saves and puts back around a paste. Typing is only for clipboards
+    // that cannot be saved at all, because some apps (Windows 11 Notepad) drop most of a
+    // long burst of typed characters.
+    const CF_TEXT: u32 = 1;
+    const CF_BITMAP: u32 = 2;
+    const CF_METAFILEPICT: u32 = 3;
+    const CF_DIB: u32 = 8;
+    const CF_PALETTE: u32 = 9;
+    const CF_UNICODETEXT: u32 = 13;
+    const CF_ENHMETAFILE: u32 = 14;
+    const CF_LOCALE: u32 = 16;
+    const HTML: u32 = 0xC0F1; // a registered format, e.g. "HTML Format"
+
+    #[test]
+    fn rich_text_html_and_app_formats_are_saved_as_bytes() {
+        let present = [CF_UNICODETEXT, HTML, CF_LOCALE, CF_TEXT];
+        assert_eq!(save_kind(CF_UNICODETEXT, &present), SaveKind::Bytes);
+        assert_eq!(save_kind(HTML, &present), SaveKind::Bytes);
+        assert_eq!(save_kind(CF_LOCALE, &present), SaveKind::Bytes);
+        assert_eq!(save_kind(15 /* CF_HDROP: copied files */, &[15]), SaveKind::Bytes);
+    }
+
+    #[test]
+    fn formats_windows_makes_from_another_are_not_saved_twice() {
+        assert_eq!(save_kind(CF_TEXT, &[CF_UNICODETEXT, CF_TEXT]), SaveKind::Synthesized);
+        assert_eq!(save_kind(CF_BITMAP, &[CF_BITMAP, CF_DIB]), SaveKind::Synthesized);
+        assert_eq!(save_kind(CF_PALETTE, &[CF_DIB, CF_PALETTE]), SaveKind::Synthesized);
+        assert_eq!(
+            save_kind(CF_METAFILEPICT, &[CF_ENHMETAFILE, CF_METAFILEPICT]),
+            SaveKind::Synthesized
+        );
+        // ANSI-only text is the real data when there is no Unicode text.
+        assert_eq!(save_kind(CF_TEXT, &[CF_TEXT]), SaveKind::Bytes);
+    }
+
+    #[test]
+    fn drawings_are_saved_and_handles_aural_cannot_copy_are_reported() {
+        assert_eq!(save_kind(CF_ENHMETAFILE, &[CF_ENHMETAFILE]), SaveKind::EnhMetafile);
+        assert_eq!(save_kind(CF_BITMAP, &[CF_BITMAP]), SaveKind::Unsupported);
+        assert_eq!(save_kind(0x0080 /* CF_OWNERDISPLAY */, &[0x0080]), SaveKind::Unsupported);
+        assert_eq!(save_kind(0x0200 /* CF_PRIVATEFIRST */, &[0x0200]), SaveKind::Unsupported);
+        assert_eq!(save_kind(0x0300 /* CF_GDIOBJFIRST */, &[0x0300]), SaveKind::Unsupported);
+    }
+
     #[test]
     fn no_foreground_window_is_clipboard_only() {
         let mut t = target("", "");
@@ -885,7 +1104,7 @@ mod tests {
             let mut press = app_that_pastes(tx);
             let got = paste_and_restore(
                 "dictated text",
-                Some("previous clipboard".into()),
+                &ClipboardSnapshot::text("previous clipboard"),
                 &mut press,
                 Duration::from_secs(2),
             )
@@ -918,7 +1137,7 @@ mod tests {
             };
             let got = paste_and_restore(
                 "dictated text",
-                Some("previous clipboard".into()),
+                &ClipboardSnapshot::text("previous clipboard"),
                 &mut press,
                 Duration::from_secs(2),
             )
@@ -940,7 +1159,7 @@ mod tests {
             let t0 = Instant::now();
             let got = paste_and_restore(
                 "dictated text",
-                Some("previous clipboard".into()),
+                &ClipboardSnapshot::text("previous clipboard"),
                 &mut press,
                 Duration::from_millis(600),
             )
@@ -949,6 +1168,90 @@ mod tests {
             assert!(t0.elapsed() < Duration::from_secs(3));
             // The old clipboard must not replace the text the user still needs to paste.
             assert_eq!(read_clipboard_text().as_deref(), Some("dictated text"));
+        }
+
+        /// What a browser or Office puts on the clipboard: text plus HTML, an image and an
+        /// app's own format.
+        fn rich_clipboard() -> ClipboardSnapshot {
+            let text: Vec<u8> = "plain copy\0"
+                .encode_utf16()
+                .flat_map(|u| u.to_le_bytes())
+                .collect();
+            let html = b"Version:0.9\r\nStartHTML:0\r\n<b>rich copy</b>\0".to_vec();
+            let mut dib = Vec::new();
+            for v in [40i32, 1, 1] {
+                dib.extend(v.to_le_bytes());
+            }
+            dib.extend(1u16.to_le_bytes()); // planes
+            dib.extend(32u16.to_le_bytes()); // bits per pixel
+            for v in [0u32, 4, 0, 0, 0, 0] {
+                dib.extend(v.to_le_bytes());
+            }
+            dib.extend([0x10, 0x20, 0x30, 0xFF]);
+            ClipboardSnapshot::from_items(vec![
+                (13, text),
+                (register_format("HTML Format"), html),
+                (8, dib),
+                (register_format("Aural Test Format"), b"app data \x01\x02".to_vec()),
+            ])
+        }
+
+        fn data(s: &ClipboardSnapshot, format: u32) -> Option<&[u8]> {
+            s.bytes(format)
+        }
+
+        fn assert_holds(got: &ClipboardSnapshot, want: &ClipboardSnapshot) {
+            for (format, bytes) in want.byte_items() {
+                let g = data(got, format).unwrap_or_else(|| panic!("format {format} missing"));
+                // Windows may round a block up; the extra bytes are padding.
+                assert!(g.starts_with(bytes), "format {format} changed");
+            }
+        }
+
+        #[test]
+        fn the_whole_clipboard_is_saved_and_put_back_exactly() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            let rich = rich_clipboard();
+            restore_clipboard(&rich).unwrap();
+            let saved = snapshot_clipboard().unwrap();
+            assert!(saved.complete, "a rich clipboard must not force typing");
+            assert_holds(&saved, &rich);
+            set_clipboard_text("something else", false).unwrap();
+            restore_clipboard(&saved).unwrap();
+            assert_holds(&snapshot_clipboard().unwrap(), &rich);
+            assert_eq!(read_clipboard_text().as_deref(), Some("plain copy"));
+        }
+
+        #[test]
+        fn a_paste_puts_back_html_images_and_app_formats_not_just_text() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            let rich = rich_clipboard();
+            restore_clipboard(&rich).unwrap();
+            let saved = snapshot_clipboard().unwrap();
+            let (tx, rx) = mpsc::channel();
+            let mut press = app_that_pastes(tx);
+            let got =
+                paste_and_restore("dictated text", &saved, &mut press, Duration::from_secs(2))
+                    .unwrap();
+            assert_eq!(got, PasteResult::Read);
+            assert_eq!(
+                rx.recv_timeout(Duration::from_secs(2)).unwrap().as_deref(),
+                Some("dictated text")
+            );
+            assert_holds(&snapshot_clipboard().unwrap(), &rich);
+        }
+
+        #[test]
+        fn markers_left_by_an_ignored_paste_do_not_force_typing_next_time() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            set_clipboard_text("previous clipboard", false).unwrap();
+            let saved = snapshot_clipboard().unwrap();
+            let mut press = || -> anyhow::Result<()> { Ok(()) };
+            let got = paste_and_restore("dictated text", &saved, &mut press, Duration::from_millis(300))
+                .unwrap();
+            assert_eq!(got, PasteResult::Ignored);
+            // The transcript now sits there with Aural's privacy markers.
+            assert!(snapshot_clipboard().unwrap().complete);
         }
 
         #[test]
@@ -961,7 +1264,7 @@ mod tests {
             };
             let got = paste_and_restore(
                 "dictated text",
-                Some("previous".into()),
+                &ClipboardSnapshot::text("previous"),
                 &mut press,
                 Duration::from_millis(600),
             )
