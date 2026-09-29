@@ -1,5 +1,10 @@
 # WinGet packaging
 
+> **Status: not used.** Aural is not on WinGet; the only official download is
+> <https://github.com/Aurathex/Aural/releases>. Submitting was skipped for now (see
+> `docs/releasing.md`, step 5). This folder and the `Submit to WinGet` workflow are kept
+> for if that changes; the `winget install` command below will not work until then.
+
 Package identifier: **`Aurathex.Aural`** · installer type `nullsoft` (Tauri NSIS),
 per-user (`Scope: user`), silent switch `/S`.
 
