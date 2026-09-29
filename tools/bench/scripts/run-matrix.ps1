@@ -1,7 +1,7 @@
 # Benchmark every catalog variant (model + backend) on one corpus and collect the rows.
 #
 #   ./tools/bench/scripts/run-matrix.ps1 -Corpus $env:USERPROFILE\aural-bench-corpus\librispeech-100\corpus.tsv `
-#       -Out $env:USERPROFILE\aural-bench-corpus\results-v02 -Backends cpu,directml,vulkan -TargetDir C:\Claude\agt
+#       -Out $env:USERPROFILE\aural-bench-corpus\results-v02 -Backends cpu,directml,vulkan -TargetDir <build-dir>
 #
 # Variants come from manifests/catalog.v2.json (probe models included: their numbers
 # calibrate the hardware test). Models are read from -Models: a folder per model id, or,

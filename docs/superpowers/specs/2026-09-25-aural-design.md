@@ -519,7 +519,7 @@ This comes first because the only architecture-affecting unknowns are numeric: P
 1. **Name** (placeholder "Aural"; check GitHub/trademark collisions).
 2. **Fork Handy instead?** (faster; less original). This plan assumes **no**.
 3. **Default hotkey:** hold Ctrl+Win (Wispr-like) vs hold Right Ctrl.
-4. **Project folder** for the real repo, e.g. `C:\Users\dcova\code\aural`. The current session folder is temporary.
+4. **Project folder** for the real repo, e.g. `%USERPROFILE%\code\aural`. The current session folder is temporary.
 
 ---
 
