@@ -1,8 +1,8 @@
 # Releasing Aural
 
-Official home: **<https://github.com/Aurathex/Aural>**. Official WinGet package:
-**`Aurathex.Aural`**. The README's "Download Aural" section tells users these are the
-only sources to trust; keep it accurate.
+Official home and only official download: **<https://github.com/Aurathex/Aural/releases>**.
+Aural is not on WinGet (skipped for now, see step 5). The README's "Download Aural"
+section tells users this is the only source to trust; keep it accurate.
 
 ## One-time repository setup
 
@@ -49,12 +49,10 @@ public repositories.
 4. **Publish.** Review the draft: download the installer, check it against
    `SHA256SUMS.txt`, run `gh attestation verify` on it, install it, write the release
    notes (include the "not code-signed" paragraph below), publish.
-5. **WinGet.** Run the `Submit to WinGet` workflow with the version. It validates the
-   manifests and opens a pull request on
-   [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). The first
-   submission of `Aurathex.Aural` is reviewed by the WinGet team; later versions are
-   usually merged automatically once the validation pipeline passes. Details:
-   [packaging/winget/README.md](../packaging/winget/README.md).
+5. **WinGet: skipped for now.** Aural is not submitted to WinGet. The release
+   workflow still attaches the generated manifests, and the `Submit to WinGet` workflow
+   and [packaging/winget/README.md](../packaging/winget/README.md) are kept for if that
+   changes. Don't mention WinGet in release notes or the README meanwhile.
 
 ## Code signing: not used for the first release
 
@@ -73,7 +71,7 @@ consequences, which the README explains to users:
   releases it. With Avast off, all three passed on the real system.
 
 What stands in for a signature: official download locations only, `SHA256SUMS.txt`,
-GitHub build attestations, WinGet's own hash check, and fully public source and
+GitHub build attestations, and fully public source and
 release workflow. Signing options for later are in `docs/LICENSING.md` (the SignPath
 Foundation's free program requires an OSI license, which Aural's license is not).
 
@@ -81,6 +79,6 @@ Release-notes paragraph:
 
 > Aural is not code-signed yet. Windows SmartScreen will probably show "Windows
 > protected your PC" for this download. Only continue if you downloaded it from
-> github.com/Aurathex/Aural/releases or with `winget install --id Aurathex.Aural -e`, and
-> ideally after checking its SHA-256 and build attestation (see the README). If you'd
+> github.com/Aurathex/Aural/releases, and ideally after checking its SHA-256 and build
+> attestation (see the README). If you'd
 > rather not, don't run it.

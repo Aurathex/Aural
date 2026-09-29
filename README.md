@@ -16,24 +16,18 @@ transcribed **on your own PC** and typed into whatever app you're using.
 
 ## Download Aural
 
-Get Aural **only** from one of these two official sources:
+The **only** official download is the Releases page of the official repository:
+<https://github.com/Aurathex/Aural/releases>
 
-- **GitHub Releases** of the official repository:
-  <https://github.com/Aurathex/Aural/releases>. Download `Aural_<version>_x64-setup.exe`.
-- **WinGet**, the official package `Aurathex.Aural` (Windows 10 1809+ / Windows 11):
+1. Open the latest release (currently
+   [Aural 0.3.0](https://github.com/Aurathex/Aural/releases/tag/v0.3.0)).
+2. Under **Assets**, download **`Aural_0.3.0_x64-setup.exe`** (the Windows installer,
+   64-bit; for a newer release the version number in the name changes).
 
-  ```powershell
-  winget install --id Aurathex.Aural -e
-  ```
-
-  WinGet downloads the same installer from the GitHub release and refuses it if its
-  SHA-256 doesn't match the one in the package manifest.
-
-Copies from anywhere else (mirrors, download sites, "cracked" or "pro" versions,
-re-uploads) are not official, and redistributing Aural is not permitted by its license.
-
-The installer sets Aural up for your Windows user only and doesn't need administrator
-rights.
+Aural runs on 64-bit Windows 10 (version 1809 or later) and Windows 11. It isn't in the
+Microsoft Store or WinGet. Copies from anywhere else (mirrors, download sites, "cracked"
+or "pro" versions, re-uploads) are not official, and redistributing Aural is not
+permitted by its license.
 
 ### The installer is not code-signed
 
@@ -61,7 +55,7 @@ Aural's first releases are **not code-signed**. What that means for you:
 ### Check the download before you run it
 
 1. **Source.** The address bar showed `https://github.com/Aurathex/Aural/releases/...`
-   when you downloaded it, or you used WinGet as above.
+   when you downloaded it.
 2. **Hash.** Compare the installer's SHA-256 with the line for it in `SHA256SUMS.txt`
    on the same release page:
 
@@ -101,6 +95,22 @@ hook and clipboard are used, and whether the release workflow could ship anythin
 than what is in the repository."* An AI review is a useful second look. It is not a
 guarantee.
 
+## Install
+
+1. Double-click **`Aural_0.3.0_x64-setup.exe`**. If Windows SmartScreen warns you, see
+   [The installer is not code-signed](#the-installer-is-not-code-signed) above.
+2. Follow the installer. It installs Aural **for your Windows user only** and doesn't
+   need administrator rights. The default folder is `%LOCALAPPDATA%\Aural`.
+3. Aural's windows use Microsoft Edge WebView2, which is part of Windows 11 and most
+   Windows 10 PCs. If it's missing, the installer downloads and installs it, so keep the
+   PC online.
+4. On the last page, leave **Run Aural** ticked to start it now. Tick **Create desktop
+   shortcut** if you want one. Aural is always added to the Start menu.
+
+To start Aural later, open the Start menu and choose **Aural**. It runs in the
+notification area (bottom-right, next to the clock): click its icon, or right-click it
+and choose **Open Aural**, to see its window; **Quit Aural** closes it completely.
+
 ## First run
 
 1. Aural opens on **Models** and offers to check your PC: it tries two small test models
@@ -116,12 +126,35 @@ If something goes wrong the pill says so briefly — for example "Mic blocked" (
 privacy settings), "No model", or "Copied — Ctrl+V" when Aural couldn't type into the
 window (admin apps, or you switched windows) and left the text on your clipboard.
 
+## Update
+
+Aural doesn't check for updates by itself. New versions are published on the
+[Releases page](https://github.com/Aurathex/Aural/releases) (on GitHub you can choose
+**Watch → Custom → Releases** to be notified).
+
+1. Download the new `Aural_<version>_x64-setup.exe` from the Releases page and, ideally,
+   check it as described above.
+2. Run it. If Aural is still running, the installer offers to close it (or quit it first:
+   right-click the notification-area icon → **Quit Aural**).
+3. When the installer says an older version of Aural is installed, keep the recommended
+   **Uninstall before installing** and continue.
+
+Your settings, history and downloaded models are kept, and "Start Aural with Windows"
+stays as it was.
+
 ## Uninstall
 
-Settings → About → **Delete Aural** removes the app, every downloaded model, your
-settings and the startup entry (type `YES, DELETE` to confirm). Uninstalling from
-Windows Settings → Apps also works; tick "Delete the application data" there to remove
-models and settings too.
+- **Windows 11:** Settings → Apps → Installed apps → **Aural** → **⋯** → Uninstall.
+- **Windows 10:** Settings → Apps → Apps & features → **Aural** → Uninstall.
+
+The uninstaller removes the program and the "start with Windows" entry. Its **Delete the
+application data** box decides what happens to your data: leave it unticked to keep
+your settings, history and downloaded models (for example if you'll reinstall later), or
+tick it to remove them too.
+
+To remove everything from inside the app instead: open Aural → **About** → **Delete
+Aural** (type `YES, DELETE` to confirm). It removes the app, every downloaded model,
+your settings, history and dictionary, and the startup entry.
 
 ## Documentation
 
