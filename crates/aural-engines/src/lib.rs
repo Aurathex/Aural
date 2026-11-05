@@ -14,6 +14,8 @@ mod log_capture;
 #[cfg(feature = "onnx")]
 pub mod onnx_accel;
 #[cfg(feature = "onnx")]
+pub mod onnx_cohere;
+#[cfg(feature = "onnx")]
 pub mod onnx_llm;
 #[cfg(feature = "onnx")]
 pub mod onnx_moonshine;
@@ -35,6 +37,8 @@ pub enum Engine {
     Whisper,
     /// Useful Sensors Moonshine via ONNX Runtime (feature `onnx`)
     Moonshine,
+    /// Cohere Transcribe via ONNX Runtime (feature `onnx`)
+    Cohere,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -118,6 +122,12 @@ pub fn build_engine(
     threads: usize,
 ) -> Result<Box<dyn Transcriber>> {
     match engine {
+        Engine::Cohere => {
+            #[cfg(feature = "onnx")]
+            return onnx_cohere::load(model, backend, threads);
+            #[cfg(not(feature = "onnx"))]
+            anyhow::bail!("engine 'cohere' is not compiled in; rebuild with --features onnx")
+        }
         Engine::Parakeet => {
             #[cfg(feature = "onnx")]
             return onnx_parakeet::load(model, backend, threads);

@@ -7,6 +7,7 @@
   import Models from "./Models.svelte";
   import About from "./About.svelte";
   import Writing from "./Writing.svelte";
+  import Touchup from "./Touchup.svelte";
   import History from "./History.svelte";
   import type { AppState, HwTestStatus, ProgressEvent, Settings } from "../lib/types";
 
@@ -24,6 +25,8 @@
   let page = $state<Page>("general");
   let saveError = $state<string | null>(null);
   let deleted = $state(false);
+  let loadError = $state(false);
+  let saving = $state(false);
 
   function applyProgress(p: ProgressEvent) {
     const m = app?.models.find((x) => x.id === p.id);
@@ -35,6 +38,7 @@
   // The window can load before the backend has finished starting; the first state
   // (from any source) decides whether to open on Models.
   function receive(s: AppState) {
+    loadError = false;
     app = s;
     if (firstRun) {
       firstRun = false;
@@ -56,14 +60,18 @@
         await new Promise((r) => setTimeout(r, 150));
       }
     }
+    if (!app) loadError = true;
   }
 
   async function save(s: Settings) {
     saveError = null;
+    saving = true;
     try {
       app = await call<AppState>("save_settings", { settings: s });
     } catch (e) {
       saveError = String(e);
+    } finally {
+      saving = false;
     }
   }
 
@@ -94,7 +102,7 @@
 
   function status(a: AppState): string {
     switch (a.engine.state) {
-      case "ready": return `Ready — hold ${a.hotkey_display}`;
+      case "ready": return `Ready — ${a.settings.hotkey.mode === "toggle" ? "press" : "hold"} ${a.hotkey_display}`;
       case "loading": return "Getting the model ready…";
       case "error": return "The model couldn't start";
       default: return "Download a model to begin";
@@ -105,9 +113,11 @@
 {#if deleted}
   <div class="farewell"><Logo size={40} /><p>Aural is being removed. You can close this window.</p></div>
 {:else if app}
+  <Touchup preview={app.touchup} update={(p) => { if (app) app.touchup = p; }} />
   <div class="shell">
     <aside>
-      <div class="brand"><span class="mark"><Logo size={18} weight={6} /></span><span>Aural</span></div>
+      <div class="brand"><span class="mark"><Logo size={18} weight={6} /></span><span>Aural</span><span class="version">{app.version}</span></div>
+      <div class="local-label">Voice, on your PC</div>
       <nav aria-label="Settings">
         {#each pages as p (p.id)}
           <button class="nav" aria-current={page === p.id ? "page" : undefined} onclick={() => (page = p.id)}>{p.label}</button>
@@ -120,6 +130,7 @@
       {#if !inApp}<div class="demo">Design preview — demo data</div>{/if}
     </aside>
     <main>
+      <div class="save-status" role="status" aria-live="polite">{saving ? "Saving changes…" : saveError ? "Changes weren't saved" : "Settings save automatically"}</div>
       {#if app.notice}
         <div class="notice" role="alert">
           <span>{app.notice}</span>
@@ -129,13 +140,22 @@
       {#if saveError}
         <div class="notice" role="alert"><span>{saveError}</span><button class="btn quiet" onclick={() => (saveError = null)}>Dismiss</button></div>
       {/if}
+      <fieldset class="page-content" disabled={saving} aria-busy={saving}>
       {#if page === "general"}<General {app} {save} />
       {:else if page === "microphone"}<Microphone {app} {save} />
       {:else if page === "models"}<Models {app} update={(s) => (app = s)} />
       {:else if page === "writing"}<Writing {app} {save} update={(s) => (app = s)} />
       {:else if page === "history"}<History {app} {save} update={(s) => (app = s)} />
       {:else}<About {app} />{/if}
+      </fieldset>
     </main>
+  </div>
+{:else}
+  <div class="startup" role="status">
+    <span class="mark"><Logo size={24} /></span>
+    <h1>{loadError ? "Aural couldn't load settings" : "Opening Aural…"}</h1>
+    <p>{loadError ? "Check that Aural is still running, then try again." : "Connecting to your local dictation engine."}</p>
+    {#if loadError}<button class="btn primary" onclick={() => { loadError = false; void refresh(3); }}>Try again</button>{/if}
   </div>
 {/if}
 
@@ -150,7 +170,15 @@
     background: var(--side);
     border-right: 1px solid var(--line);
   }
-  .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 20px; font: 600 16px var(--font-display); }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 8px; font: 600 16px var(--font-display); }
+  .version { margin-left: auto; font: 11px var(--font); color: var(--ink-2); }
+  .local-label { padding: 0 8px 24px; color: var(--ink-2); font-size: 12px; }
+  .save-status { padding: 16px 36px 0; font-size: 11px; color: var(--ink-2); min-height: 32px; }
+  .page-content { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .startup { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100vh; padding: 32px; text-align: center; }
+  .startup .mark { width: 44px; height: 44px; }
+  .startup h1 { font: 600 20px var(--font-display); margin: 0; }
+  .startup p { color: var(--ink-2); margin: 0 0 8px; }
   .mark {
     display: grid;
     place-items: center;

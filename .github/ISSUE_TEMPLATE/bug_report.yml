@@ -1,0 +1,37 @@
+name: Report a problem
+description: Help improve Aural with a reproducible report.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove private dictation and personal information before posting.
+  - type: input
+    id: version
+    attributes:
+      label: Aural version
+      placeholder: 0.3.1
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows version and target app
+      placeholder: Windows 11, Windows Terminal / Claude Code
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Speech or writing model
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, what happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: Include relevant errors or screenshots with private content removed.

@@ -225,3 +225,41 @@ fn live_text_streams_two_sentences_through_the_worker() {
         want.len()
     );
 }
+
+/// Full worker/protocol and real English decoding, needs AURAL_TEST_COHERE_DIR.
+#[test]
+#[ignore]
+fn worker_transcribes_cohere_real_speech() {
+    let mut client = spawn();
+    client
+        .load(
+            PathBuf::from(std::env::var("AURAL_TEST_COHERE_DIR").unwrap()),
+            Engine::Cohere,
+            Backend::Cpu,
+            4,
+            Duration::from_secs(180),
+        )
+        .unwrap();
+    assert_eq!(client.backend().as_deref(), Some("cpu"));
+    let clips = aural_eval::clips::builtin(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/eval"),
+    )
+    .unwrap();
+    for clip in clips.iter().take(3) {
+        let started = std::time::Instant::now();
+        let text = client
+            .transcribe(&clip.pcm16k, Duration::from_secs(180))
+            .unwrap();
+        let wer = aural_eval::wer::word_errors(&clip.reference, &text).wer();
+        eprintln!(
+            "Cohere {}: {} ms, WER {wer:?}: {text}",
+            clip.id,
+            started.elapsed().as_millis()
+        );
+        assert!(wer < 0.3, "{}: {text}", clip.id);
+    }
+    assert!(client
+        .transcribe(&[], Duration::from_secs(10))
+        .unwrap()
+        .is_empty());
+}

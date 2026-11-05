@@ -185,11 +185,23 @@ impl DictationIo for AppIo {
     }
 
     fn insert(&mut self, text: &str, release_hwnd: isize) -> InsertOutcome {
-        match insert::insert(text, release_hwnd) {
+        let paste = aural_text::profile::find(&self.app.settings().apps, &self.session.app)
+            .and_then(|p| p.paste_shortcut)
+            .map(|p| match p {
+                aural_core::settings::PasteShortcut::CtrlV => insert::PasteChord::CtrlV,
+                aural_core::settings::PasteShortcut::CtrlShiftV => insert::PasteChord::CtrlShiftV,
+                aural_core::settings::PasteShortcut::ShiftInsert => insert::PasteChord::ShiftInsert,
+            });
+        match insert::insert_with_paste(text, release_hwnd, paste) {
             Ok(outcome) => outcome,
-            Err(_) => {
-                let _ = insert::set_clipboard_text(text, false);
-                InsertOutcome::CopiedOnly(Reason::NoTarget)
+            Err(error) => {
+                if insert::recover_insert_error(&error).unwrap_or(false) {
+                    InsertOutcome::CopiedOnly(Reason::NoTarget)
+                } else {
+                    // A newer copy wins. The transcript remains in Aural recovery;
+                    // do not claim it was copied or automatically send it again.
+                    InsertOutcome::PasteSent
+                }
             }
         }
     }

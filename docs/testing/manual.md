@@ -60,6 +60,34 @@ that nothing else happened (no message sent, no command run).
 - [ ] Copy some text first, then dictate: that text is still on the clipboard afterwards,
       and dictated text does not appear in Win + V history
 
+## 0.3.1 terminal and settings regression checks
+
+The earlier background-reader failures were resolved with target-reader identity,
+conservative unconfirmed delivery, cleanup contention handling, and transaction-owner
+scoping. The full platform suite now passes with SignalRGB running, without exclusions.
+Native selection replacement and actual Windows Terminal input-content fixtures pass.
+A clipboard read alone still does not prove insertion: unknown readers produce
+"Check target input" and preserve recovery rather than automatic retry.
+The checklist below distinguishes manual microphone/application checks from the
+completed automated/native fixtures; see docs/release/v0.3.1-readiness.md.
+
+- [ ] Windows Terminal / PowerShell: dictate into an empty prompt, check it is not
+      submitted, and verify that quoted repeated spaces and paths survive delivery.
+- [ ] Claude Code in Windows Terminal: dictate into the prompt in normal input mode;
+      the prompt must remain editable and must not be submitted automatically.
+- [ ] VS Code and Cursor integrated terminals: in Writing → Apps add the host app
+      and select Terminal paste; repeat the Claude Code check. Switch delivery back
+      to Automatic and verify normal editor input. The override applies to the host,
+      not exclusively its terminal. Custom bindings may require another shortcut.
+- [ ] Change focus while transcription is finishing: neither the old nor new app
+      receives automatic text; recover the result from the clipboard/tray.
+- [ ] An elevated terminal receives clipboard-only recovery from non-elevated Aural.
+- [ ] Toggle mode uses “press” in status/help; push-to-talk uses “hold”.
+- [ ] A disconnected settings backend shows a retry action instead of a blank window.
+- [ ] Check General, Models, Writing, History and About at 720×520, 820×580 and
+      1280×800, in light/dark mode and with increased Windows text scaling.
+- [ ] Saving disables settings controls until completion and reports a save failure.
+
 ## Microphone
 
 - [ ] Choose a different microphone in Settings; dictation uses it.
@@ -73,3 +101,18 @@ that nothing else happened (no message sent, no command run).
 - [ ] Turn on "Start Aural with Windows", sign out and in: Aural is in the notification
       area without opening a window.
 - [ ] Delete Aural removes the app, the Start menu entry and all data.
+
+
+### Selected-text document identity limit
+
+AI touch-up displays the original window caption before Apply. Delivery checks the
+original process/window, focused control, window caption, accessibility identity
+when available, and exact selected text. Generic applications can reuse all these
+identifiers across documents. If a different document has the same caption,
+focused-control identity and selected text, Aural cannot distinguish it from the
+original document. These checks reduce accidental replacement; they do not prove
+absolute document identity. Keep the original document open and verify the target
+caption and revision before Apply. Do not switch documents while a preview is open.
+
+Manual acceptance: hide a review preview, press Ctrl + Alt + T again, and verify
+that the same preview reopens. Verify the original window caption in that preview.

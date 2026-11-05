@@ -224,6 +224,7 @@ impl TextModel for Llm {
         };
         let mut ids = prompt_ids[past..].to_vec();
         let mut out: Vec<u32> = Vec::new();
+        let mut completed = false;
         for step in 0..max_tokens {
             let next = self.step(&ids, past, &mut cache)?;
             past += ids.len();
@@ -232,11 +233,16 @@ impl TextModel for Llm {
             }
             let token = u32::try_from(next)?;
             if self.stop.contains(&token) {
+                completed = true;
                 break;
             }
             out.push(token);
             ids = vec![next];
         }
+        anyhow::ensure!(
+            completed,
+            "the writing helper reached its output limit; select a shorter passage"
+        );
         self.tokenizer
             .decode(&out, true)
             .map_err(|e| anyhow!("{e}"))

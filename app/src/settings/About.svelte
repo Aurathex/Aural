@@ -37,7 +37,7 @@
     <h2>Credits</h2>
     <div class="credits">
       {#each app.models as m (m.id)}<p>{m.attribution}</p>{/each}
-      <p>Aural is free for personal and other noncommercial use under the PolyForm Strict License 1.0.0, which does not allow modifying or redistributing it. Commercial use needs a license from Aurathex. The license and third-party notices are in the install folder (LICENSE.md, THIRD_PARTY_NOTICES.md).</p>
+      <p>Aural is available under the PolyForm Noncommercial License 1.0.0. Noncommercial use, modification, and redistribution are permitted under its terms. Commercial use requires separate permission from Aurathex. The license and third-party notices are in the install folder (LICENSE.md, THIRD_PARTY_NOTICES.md).</p>
     </div>
   </section>
 

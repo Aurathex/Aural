@@ -12,6 +12,7 @@ export interface Settings {
   ui: { pill_position: PillPosition; sounds: boolean };
   live: { enabled: boolean };
   text: {
+    touchup: boolean;
     cleanup: CleanupMode;
     dictionary: boolean;
     ai_model: string | null;
@@ -23,10 +24,12 @@ export interface Settings {
 }
 
 export type CleanupMode = "off" | "light" | "ai";
+export type PasteShortcut = "ctrl_v" | "ctrl_shift_v" | "shift_insert";
 
 /** Settings for one app by program file; null follows the general settings. */
 export interface AppProfile {
   app: string;
+  paste_shortcut?: PasteShortcut | null;
   cleanup: CleanupMode | null;
   dictionary: boolean | null;
   live: boolean | null;
@@ -164,6 +167,7 @@ export interface AppState {
   text_engine: TextEngineStatus;
   recent_apps: string[];
   history_count: number;
+  touchup: TouchupPreview;
 }
 
 export type Verdict =
@@ -274,4 +278,13 @@ export interface HwTestStatus {
   stale: boolean;
   /** The two small test models are already on this PC. */
   test_models_installed: boolean;
+}
+
+export interface TouchupPreview {
+  id: number;
+  phase: "" | "working" | "review" | "applying" | "error" | "done";
+  original: string;
+  target: string;
+  suggestion: string;
+  error: string | null;
 }

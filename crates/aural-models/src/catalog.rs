@@ -130,7 +130,7 @@ impl ModelEntry {
 /// The runtime an engine's files are read by.
 fn runtime_of(engine: Engine) -> Runtime {
     match engine {
-        Engine::Parakeet | Engine::Moonshine => Runtime::Onnx,
+        Engine::Parakeet | Engine::Moonshine | Engine::Cohere => Runtime::Onnx,
         Engine::Whisper => Runtime::Ggml,
     }
 }
@@ -236,6 +236,29 @@ fn is_safe_file_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cohere_has_complete_pinned_cpu_only_download() {
+        let catalog = Catalog::builtin();
+        let model = catalog.get("cohere-transcribe-03-2026-int4").unwrap();
+        assert_eq!(model.engine, Engine::Cohere);
+        assert_eq!(model.files.len(), 5);
+        assert_eq!(model.total_size(), 1_994_857_346);
+        assert_eq!(model.variants.len(), 1);
+        assert_eq!(model.variants[0].backend, Backend::Cpu);
+        assert!(model.variants[0].reference.is_none());
+        assert!(model.files.iter().all(|f| f
+            .url
+            .contains("/resolve/2c870f89692c61348481884eb6e1222ec3ba25c9/")));
+        assert!(model
+            .files
+            .iter()
+            .any(|f| f.name == "cohere-encoder.int4.onnx.data"));
+        assert!(model
+            .files
+            .iter()
+            .any(|f| f.name == "cohere-decoder.int4.onnx.data"));
+    }
 
     fn one(id: &str, file_name: &str, url: &str, sha: &str) -> String {
         format!(

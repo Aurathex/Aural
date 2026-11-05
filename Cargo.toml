@@ -33,7 +33,7 @@ default-members = [
 
 [workspace.package]
 edition = "2021"
-license = "PolyForm-Strict-1.0.0"
+license = "PolyForm-Noncommercial-1.0.0"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

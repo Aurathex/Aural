@@ -1,7 +1,7 @@
 /* Shared settings building blocks: sections, rows, buttons, switches, segmented. */
 /* One scroll area: the window never scrolls, only the content pane (App.svelte main). */
 html, body { overflow: hidden; overscroll-behavior: none; }
-.page { padding: 28px 36px 40px; max-width: 720px; }
+.page { padding: 20px 36px 40px; max-width: 800px; }
 .page h1 { margin: 0 0 4px; font: 600 22px/1.2 var(--font-display); letter-spacing: -0.01em; }
 .page .lede { margin: 0 0 24px; color: var(--ink-2); }
 .section { margin: 0 0 28px; }
@@ -127,3 +127,12 @@ select.field {
 }
 .callout .text { flex: 1; }
 .muted { color: var(--ink-2); }
+
+/* Keep controls readable at the minimum window size and Windows text scaling. */
+@media (max-width: 800px) {
+  .page { padding-inline: 24px; }
+  .row { flex-wrap: wrap; gap: 12px; }
+  .row .text { flex-basis: 220px; }
+  .row .control { max-width: 100%; flex-wrap: wrap; }
+  select.field { min-width: 0; max-width: 100%; }
+}

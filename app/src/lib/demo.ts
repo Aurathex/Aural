@@ -38,7 +38,7 @@ const settings: Settings = {
   startup: { launch_at_login: false },
   ui: { pill_position: "bottom", sounds: true },
   live: { enabled: true },
-  text: { cleanup: "light", dictionary: true, ai_model: null, ai_reword_words: false, ai_reword_numbers: false },
+  text: { touchup: true, cleanup: "light", dictionary: true, ai_model: null, ai_reword_words: false, ai_reword_numbers: false },
   apps: [{ app: "windowsterminal.exe", cleanup: "off", dictionary: null, live: null, history: null }],
   history: { enabled: true, keep_days: 30, stats: true },
 };
@@ -194,7 +194,7 @@ if (!fresh) {
 }
 
 const state: AppState = {
-  version: "0.3.0",
+  version: "0.3.1",
   settings,
   hotkey_display: "Ctrl + Win",
   models,
@@ -238,6 +238,7 @@ const state: AppState = {
   text_engine: { state: "off" },
   recent_apps: ["slack.exe", "outlook.exe", "code.exe", "windowsterminal.exe"],
   history_count: 3,
+  touchup: { id: 0, phase: "", original: "", target: "", suggestion: "", error: null },
 };
 
 const now = Math.floor(Date.now() / 1000);

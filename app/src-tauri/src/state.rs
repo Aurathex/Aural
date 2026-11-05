@@ -49,6 +49,7 @@ pub struct App {
     pub stats: Mutex<aural_text::stats::Stats>,
     pub text_catalog: aural_models::text::TextCatalog,
     pub text_engine: crate::text_engine::TextHost,
+    pub touchup: crate::touchup::Touchup,
     pub text_downloads: Mutex<HashMap<String, (u64, u64)>>,
 }
 
@@ -79,6 +80,7 @@ pub struct AppStateDto {
     /// Apps you have dictated into (for per-app settings), most used first.
     pub recent_apps: Vec<String>,
     pub history_count: usize,
+    pub touchup: crate::touchup::Preview,
 }
 
 #[derive(Clone, Serialize)]
@@ -165,6 +167,7 @@ impl App {
             text_engine: self.text_engine.status(),
             recent_apps: self.recent_apps(),
             history_count: lock(&self.history).entries().len(),
+            touchup: crate::touchup::preview(self),
             settings: s,
         }
     }

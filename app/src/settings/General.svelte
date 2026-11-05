@@ -83,7 +83,7 @@
 
 <div class="page">
   <h1>General</h1>
-  <p class="lede">Hold your hotkey anywhere in Windows, speak, and let go. Aural types what you said into the app you're using.</p>
+  <p class="lede">{app.settings.hotkey.mode === "toggle" ? "Press your hotkey to start, speak, then press it again to finish." : "Hold your hotkey, speak, and let go."} Your words appear in the app you're using.</p>
 
   <section class="section">
     <h2>Dictation</h2>
@@ -100,7 +100,7 @@
               {:else}Press the keys you want to use, then let go. Esc cancels.{/if}
             </div>
           {:else}
-            <div class="desc">Works in every app. Win + H stays with Windows voice typing.</div>
+            <div class="desc">Dictate into the focused input. Win + H stays with Windows voice typing.</div>
           {/if}
         </div>
         <div class="control">
@@ -147,6 +147,24 @@
             aria-label="Show words while I speak"
             onclick={setLive}
           ></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Terminals &amp; Claude Code</h2>
+    <div class="rows">
+      <div class="row">
+        <div class="text">
+          <div class="title">Paste your prompt, then review it</div>
+          <div class="desc">Windows Terminal uses terminal paste automatically. Dictation stays on one line and Aural never presses Enter.</div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="text">
+          <div class="title">Using Claude Code inside an editor?</div>
+          <div class="desc">In Writing → Apps, add code or cursor and choose Terminal paste. For commands and code, turn tidy up off for that app.</div>
         </div>
       </div>
     </div>

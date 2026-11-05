@@ -56,7 +56,16 @@ impl InsertPlan {
     pub fn apply(&self, text: &str) -> String {
         let t = text.trim();
         if self.single_line {
-            t.split_whitespace().collect::<Vec<_>>().join(" ")
+            // Keep spaces in quoted arguments intact. Line breaks and control keys
+            // must never submit a prompt, run a command, or trigger terminal actions.
+            t.replace("\r\n", "\n")
+                .chars()
+                .filter_map(|c| match c {
+                    '\n' | '\r' | '\t' | '\u{2028}' | '\u{2029}' => Some(' '),
+                    c if c.is_control() => None,
+                    c => Some(c),
+                })
+                .collect()
         } else {
             t.to_owned()
         }
@@ -66,11 +75,22 @@ impl InsertPlan {
 fn is_terminal(t: &TargetInfo) -> Option<PasteChord> {
     let p = t.process.to_ascii_lowercase();
     match p.as_str() {
-        "windowsterminal.exe" => Some(PasteChord::CtrlShiftV),
+        "windowsterminal.exe"
+        | "alacritty.exe"
+        | "wezterm-gui.exe"
+        | "ghostty.exe"
+        | "warp.exe" => Some(PasteChord::CtrlShiftV),
         "mintty.exe" => Some(PasteChord::ShiftInsert),
-        "conhost.exe" | "openconsole.exe" | "alacritty.exe" | "wezterm-gui.exe" | "cmd.exe"
-        | "powershell.exe" | "pwsh.exe" => Some(PasteChord::CtrlV),
-        _ if t.class == "ConsoleWindowClass" => Some(PasteChord::CtrlV),
+        "conhost.exe" | "openconsole.exe" | "cmd.exe" | "powershell.exe" | "pwsh.exe" => {
+            Some(PasteChord::CtrlV)
+        }
+        _ if t
+            .class
+            .eq_ignore_ascii_case("CASCADIA_HOSTING_WINDOW_CLASS") =>
+        {
+            Some(PasteChord::CtrlShiftV)
+        }
+        _ if t.class.eq_ignore_ascii_case("ConsoleWindowClass") => Some(PasteChord::CtrlV),
         _ => None,
     }
 }
@@ -121,7 +141,19 @@ pub fn plan(
     clipboard_saved: bool,
     self_elevated: bool,
 ) -> InsertPlan {
-    let terminal = is_terminal(target);
+    plan_with_paste(target, release_hwnd, clipboard_saved, self_elevated, None)
+}
+
+/// An explicit shortcut supports embedded terminals without guessing whether an
+/// editor or its terminal has focus. Explicit overrides also use single-line text.
+pub fn plan_with_paste(
+    target: &TargetInfo,
+    release_hwnd: isize,
+    clipboard_saved: bool,
+    self_elevated: bool,
+    paste: Option<PasteChord>,
+) -> InsertPlan {
+    let terminal = paste.or_else(|| is_terminal(target));
     let strategy = if target.hwnd == 0 {
         Strategy::ClipboardOnly(Reason::NoTarget)
     } else if target.hwnd != release_hwnd {
@@ -129,7 +161,11 @@ pub fn plan(
     } else if target.elevated && !self_elevated {
         Strategy::ClipboardOnly(Reason::Elevated)
     } else if !clipboard_saved {
-        Strategy::Type
+        if terminal.is_some() {
+            Strategy::ClipboardOnly(Reason::PasteIgnored)
+        } else {
+            Strategy::Type
+        }
     } else {
         Strategy::Paste(terminal.unwrap_or(PasteChord::CtrlV))
     };
@@ -271,7 +307,11 @@ mod win {
         }
     }
 
-    struct ClipboardGuard;
+    struct ClipboardGuard {
+        // Keep a real owner alive until after CloseClipboard. EmptyClipboard with
+        // a NULL owner makes subsequent SetClipboardData fail on Windows.
+        _owner: Option<OwnerWindow>,
+    }
     impl Drop for ClipboardGuard {
         fn drop(&mut self) {
             // SAFETY: only constructed after a successful OpenClipboard.
@@ -281,15 +321,21 @@ mod win {
 
     /// Clipboard managers can hold the clipboard briefly; retry for up to ~500 ms.
     fn open_clipboard() -> Result<ClipboardGuard> {
+        let owner = OwnerWindow::create()?;
         let deadline = Instant::now() + Duration::from_millis(500);
         loop {
-            // SAFETY: no owner window needed for our use.
-            if unsafe { OpenClipboard(None) }.is_ok() {
-                return Ok(ClipboardGuard);
+            // SAFETY: our message-only window stays alive in the guard.
+            if unsafe { OpenClipboard(Some(owner.0)) }.is_ok() {
+                return Ok(ClipboardGuard {
+                    _owner: Some(owner),
+                });
             }
             if Instant::now() > deadline {
                 bail!("the clipboard is busy");
             }
+            // A clipboard watcher may be waiting for this thread to render the
+            // previous owner's text. Dispatch it before retrying OpenClipboard.
+            owner.pump();
             std::thread::sleep(Duration::from_millis(15));
         }
     }
@@ -528,7 +574,11 @@ mod win {
 
     fn write_clipboard_text(text: &str, private: bool) -> Result<()> {
         let _g = open_clipboard()?;
-        // SAFETY: clipboard is open.
+        write_clipboard_text_locked(text, private)
+    }
+
+    fn write_clipboard_text_locked(text: &str, private: bool) -> Result<()> {
+        // SAFETY: caller holds the clipboard open.
         unsafe { EmptyClipboard() }.context("emptying clipboard")?;
         let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         let bytes: Vec<u8> = wide.iter().flat_map(|u| u.to_le_bytes()).collect();
@@ -553,6 +603,19 @@ mod win {
             }
         }
         Ok(())
+    }
+
+    /// Recover failed delivery only if nobody changed the original clipboard.
+    /// The comparison and write share the clipboard lock, preventing a user-copy race.
+    pub fn recover_insert_error(error: &InsertError) -> Result<bool> {
+        let _g = open_clipboard()?;
+        if unsafe { GetClipboardSequenceNumber() } != error.recovery_sequence {
+            // An interrupted paste may already have left normalized recovery text.
+            // Report availability without rewriting it or any newer user copy.
+            return Ok(read_text_locked().as_deref() == Some(error.fallback_text.as_str()));
+        }
+        write_clipboard_text_locked(&error.fallback_text, false)?;
+        Ok(true)
     }
 
     fn key(vk: u16, up: bool) -> INPUT {
@@ -658,9 +721,9 @@ mod win {
     // ---- Delayed rendering -------------------------------------------------------
     //
     // Aural offers the text without data; Windows asks our owner window for it at the
-    // moment the target app actually reads the clipboard (WM_RENDERFORMAT). That tells
-    // us the paste happened, so the user's previous clipboard is restored only after
-    // the target has the transcript, however slow the target is (RDP, VMs, busy apps).
+    // moment an app reads the clipboard (WM_RENDERFORMAT). Only an identified target
+    // process can acknowledge that read. This is transport evidence, not proof that
+    // a particular input control accepted the text.
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum PasteResult {
@@ -670,11 +733,20 @@ mod win {
         /// Nothing read it in time; the transcript is left on the clipboard (unless the
         /// user copied something newer), and nothing was restored over it.
         Ignored,
+        /// Text was rendered for an unidentified reader. Paste may have happened;
+        /// retain recovery text and never automatically retry.
+        Unconfirmed,
     }
 
     thread_local! {
         static PENDING: std::cell::RefCell<Option<Vec<u8>>> = const { std::cell::RefCell::new(None) };
+        static PENDING_OWNER: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
         static RENDERED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        static TARGET_PID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        static TARGET_READ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        // Only cleanup permits unrelated readers to finish: at that point the
+        // transcript is intentionally being retained for manual clipboard recovery.
+        static RECOVERING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
 
     fn render_pending() {
@@ -702,10 +774,32 @@ mod win {
         use windows::Win32::UI::WindowsAndMessaging::{
             DefWindowProcW, WM_RENDERALLFORMATS, WM_RENDERFORMAT,
         };
+        // Clipboard utility operations create other owner windows on this same
+        // thread. Their destruction must never render an older transaction's text
+        // over a newer copy, nor clear that transaction's pending buffer.
+        if matches!(msg, WM_RENDERFORMAT | WM_RENDERALLFORMATS)
+            && PENDING_OWNER.with(|owner| owner.get()) != hwnd.0 as isize
+        {
+            return LRESULT(0);
+        }
         match msg {
             WM_RENDERFORMAT => {
                 if wparam.0 as u32 == CF_UNICODETEXT {
-                    render_pending();
+                    // A watcher must not consume the delayed format: subsequent reads
+                    // of rendered data would be invisible to this owner window.
+                    use windows::Win32::System::DataExchange::GetOpenClipboardWindow;
+                    let reader = unsafe { GetOpenClipboardWindow() }.ok();
+                    let mut pid = 0;
+                    if let Some(reader) = reader {
+                        unsafe { GetWindowThreadProcessId(reader, Some(&mut pid)) };
+                    }
+                    let intended = TARGET_PID.with(|p| p.get()) == pid && pid != 0;
+                    if intended || pid == 0 || RECOVERING.with(|r| r.get()) {
+                        render_pending();
+                        if intended && RENDERED.with(|r| r.get()) {
+                            TARGET_READ.with(|r| r.set(true));
+                        }
+                    }
                 }
                 LRESULT(0)
             }
@@ -774,7 +868,7 @@ mod win {
             loop {
                 // SAFETY: our own window.
                 if unsafe { OpenClipboard(Some(self.0)) }.is_ok() {
-                    return Ok(ClipboardGuard);
+                    return Ok(ClipboardGuard { _owner: None });
                 }
                 if Instant::now() > deadline {
                     bail!("the clipboard is busy");
@@ -811,7 +905,10 @@ mod win {
             use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
             // SAFETY: our own window, destroyed on the thread that created it.
             let _ = unsafe { DestroyWindow(self.0) };
-            PENDING.with(|p| p.borrow_mut().take());
+            if PENDING_OWNER.with(|owner| owner.get()) == self.0 .0 as isize {
+                PENDING.with(|p| p.borrow_mut().take());
+                PENDING_OWNER.with(|owner| owner.set(0));
+            }
         }
     }
 
@@ -827,7 +924,23 @@ mod win {
         press: &mut dyn FnMut() -> Result<()>,
         timeout: Duration,
     ) -> Result<PasteResult> {
+        // Compatibility helper for clipboard integrations in this process.
+        let pid = unsafe { windows::Win32::System::Threading::GetCurrentProcessId() };
+        paste_for_process(text, previous, press, timeout, pid)
+    }
+
+    fn paste_for_process(
+        text: &str,
+        previous: &ClipboardSnapshot,
+        press: &mut dyn FnMut() -> Result<()>,
+        timeout: Duration,
+        target_pid: u32,
+    ) -> Result<PasteResult> {
         let owner = OwnerWindow::create()?;
+        PENDING_OWNER.with(|pending| pending.set(owner.0 .0 as isize));
+        TARGET_PID.with(|p| p.set(target_pid));
+        TARGET_READ.with(|r| r.set(false));
+        RECOVERING.with(|r| r.set(false));
         let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         PENDING
             .with(|p| *p.borrow_mut() = Some(wide.iter().flat_map(|u| u.to_le_bytes()).collect()));
@@ -857,14 +970,23 @@ mod win {
                 }
             }
         }
-        press()?;
+        if let Err(error) = press() {
+            RECOVERING.with(|r| r.set(true));
+            let _g = owner.open_clipboard()?;
+            if owner.owns_clipboard() {
+                render_pending();
+            }
+            PENDING.with(|p| p.borrow_mut().take());
+            return Err(error);
+        }
         let pressed = Instant::now();
         let deadline = pressed + timeout;
-        while !RENDERED.with(|r| r.get()) && Instant::now() < deadline {
+        while !TARGET_READ.with(|r| r.get()) && owner.owns_clipboard() && Instant::now() < deadline
+        {
             owner.pump();
             std::thread::sleep(Duration::from_millis(5));
         }
-        if RENDERED.with(|r| r.get()) {
+        if TARGET_READ.with(|r| r.get()) {
             // The first read is not necessarily the paste: Chromium browsers read new
             // clipboard text as soon as it appears, and once rendered later reads don't
             // reach us. Keep the text on the clipboard long enough for the real paste.
@@ -887,57 +1009,372 @@ mod win {
         } else {
             // Nobody pasted. Leave the transcript for the user (rendered now, so it
             // survives this window), unless they already copied something newer.
+            let already_rendered = RENDERED.with(|r| r.get()) && owner.owns_clipboard();
+            RECOVERING.with(|r| r.set(true));
             let _g = owner.open_clipboard()?;
             if owner.owns_clipboard() {
                 render_pending();
             }
             PENDING.with(|p| p.borrow_mut().take());
-            Ok(PasteResult::Ignored)
+            Ok(if already_rendered {
+                PasteResult::Unconfirmed
+            } else {
+                PasteResult::Ignored
+            })
         }
+    }
+
+    /// Original selection identity retained privately while the review window has focus.
+    #[derive(Debug, Clone)]
+    pub struct SelectionSnapshot {
+        pub text: String,
+        target: TargetInfo,
+        pid: u32,
+        focused_hwnd: isize,
+        caption: String,
+        runtime_id: Option<Vec<i32>>,
+    }
+
+    impl SelectionSnapshot {
+        /// Caption captured with the original selection, for the user's review.
+        pub fn target_caption(&self) -> &str {
+            &self.caption
+        }
+    }
+
+    fn window_caption(hwnd: isize) -> String {
+        use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+        let mut buf = [0u16; 1024];
+        let n = unsafe { GetWindowTextW(HWND(hwnd as *mut _), &mut buf) };
+        String::from_utf16_lossy(&buf[..n as usize])
+    }
+
+    fn native_text_control(hwnd: isize) -> bool {
+        let mut buf = [0u16; 256];
+        let n = unsafe { GetClassNameW(HWND(hwnd as *mut _), &mut buf) };
+        let class = String::from_utf16_lossy(&buf[..n as usize]).to_ascii_lowercase();
+        class == "edit" || class.starts_with("richedit")
+    }
+
+    fn focused_runtime_id(expected_pid: u32) -> Result<Vec<i32>> {
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+            COINIT_MULTITHREADED,
+        };
+        use windows::Win32::System::Ole::{
+            SafeArrayDestroy, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
+        };
+        use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
+        struct Apartment(bool);
+        impl Drop for Apartment {
+            fn drop(&mut self) {
+                if self.0 {
+                    unsafe { CoUninitialize() };
+                }
+            }
+        }
+        unsafe {
+            let initialized = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+            let _apartment = Apartment(initialized);
+            let automation: IUIAutomation =
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+            let element = automation.GetFocusedElement()?;
+            anyhow::ensure!(
+                element.CurrentProcessId()? as u32 == expected_pid,
+                "focused accessibility element belongs to another application"
+            );
+            let array = element.GetRuntimeId()?;
+            let result = (|| -> Result<Vec<i32>> {
+                let first = SafeArrayGetLBound(array, 1)?;
+                let last = SafeArrayGetUBound(array, 1)?;
+                anyhow::ensure!(
+                    last >= first && last - first < 1024,
+                    "invalid accessibility identity"
+                );
+                let mut ids = Vec::new();
+                for index in first..=last {
+                    let mut value = 0i32;
+                    SafeArrayGetElement(array, &index, &mut value as *mut i32 as *mut _)?;
+                    ids.push(value);
+                }
+                Ok(ids)
+            })();
+            let _ = SafeArrayDestroy(array);
+            result
+        }
+    }
+
+    fn focused_control(hwnd: isize) -> Result<isize> {
+        use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO};
+        let thread = unsafe { GetWindowThreadProcessId(HWND(hwnd as *mut _), None) };
+        let mut info = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        unsafe { GetGUIThreadInfo(thread, &mut info) }.context("reading target input focus")?;
+        Ok(info.hwndFocus.0 as isize)
+    }
+
+    fn window_pid(hwnd: isize) -> u32 {
+        let mut pid = 0;
+        // SAFETY: Windows validates the supplied HWND; failure leaves pid zero.
+        unsafe { GetWindowThreadProcessId(HWND(hwnd as *mut _), Some(&mut pid)) };
+        pid
+    }
+
+    fn copy_selected_text(expected: isize) -> Result<String> {
+        if foreground_window() != expected {
+            bail!("focus changed before copying selection");
+        }
+        let previous = snapshot_clipboard()?;
+        if !previous.complete {
+            bail!("the clipboard cannot be preserved for selection capture");
+        }
+        // A fresh clipboard value distinguishes an ignored Copy from old clipboard text.
+        let marker = format!(
+            "Aural selection {} {:?}",
+            std::process::id(),
+            Instant::now()
+        );
+        let marker_sequence = set_clipboard_text(&marker, true)?;
+        let result = (|| -> Result<(String, u32)> {
+            release_modifiers()?;
+            if foreground_window() != expected {
+                bail!("focus changed before copying selection");
+            }
+            send(&[
+                key(0xA2, false),
+                key(0x43, false),
+                key(0x43, true),
+                key(0xA2, true),
+            ])?;
+            let deadline = Instant::now() + Duration::from_millis(750);
+            loop {
+                if foreground_window() != expected {
+                    bail!("focus changed while copying selection");
+                }
+                let sequence = unsafe { GetClipboardSequenceNumber() };
+                if sequence != marker_sequence {
+                    // Require the copy owner to belong to the original app. An unrelated
+                    // user copy cannot become the selection to replace.
+                    let owner =
+                        unsafe { windows::Win32::System::DataExchange::GetClipboardOwner() }.ok();
+                    if owner.is_none_or(|h| window_pid(h.0 as isize) != window_pid(expected)) {
+                        bail!("another application changed the clipboard");
+                    }
+                    let text = read_clipboard_text().context("the selection contains no text")?;
+                    if text.is_empty() || text == marker {
+                        bail!("select text before using Touch up");
+                    }
+                    return Ok((text, sequence));
+                }
+                if Instant::now() >= deadline {
+                    bail!("select text before using Touch up");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        })();
+        let expected_sequence = result
+            .as_ref()
+            .map(|(_, seq)| *seq)
+            .unwrap_or(marker_sequence);
+        // Hold the clipboard across the comparison and restore: a newer user copy
+        // can never be overwritten between the check and the write.
+        {
+            let _g = open_clipboard()?;
+            if unsafe { GetClipboardSequenceNumber() } == expected_sequence {
+                unsafe { EmptyClipboard() }.context("emptying clipboard")?;
+                write_saved_locked(&previous)?;
+            }
+        }
+        result.map(|(text, _)| text)
+    }
+
+    pub fn capture_selection() -> Result<SelectionSnapshot> {
+        let target = foreground_target();
+        if target.hwnd == 0 || (target.elevated && !self_elevated()) {
+            bail!("the focused application cannot be accessed");
+        }
+        if is_terminal(&target).is_some() {
+            bail!("select text in an editor for Touch up");
+        }
+        let pid = window_pid(target.hwnd);
+        let focused_hwnd = focused_control(target.hwnd)?;
+        let caption = window_caption(target.hwnd);
+        let runtime_id = focused_runtime_id(pid).ok();
+        if runtime_id.is_none() && !native_text_control(focused_hwnd) {
+            bail!("this input does not expose a safe selection identity; use an editor with accessibility support");
+        }
+        let text = copy_selected_text(target.hwnd)?;
+        Ok(SelectionSnapshot {
+            text,
+            target,
+            pid,
+            focused_hwnd,
+            caption,
+            runtime_id,
+        })
+    }
+
+    /// Restore the reviewed target, re-copy its exact selection, and apply once.
+    /// A changed target, selection, or intervening foreground window cancels delivery.
+    pub fn replace_selection(
+        selection: &SelectionSnapshot,
+        text: &str,
+        review_hwnd: isize,
+    ) -> Result<InsertOutcome> {
+        if review_hwnd == 0 || foreground_window() != review_hwnd {
+            bail!("focus changed from the Touch up review");
+        }
+        if window_pid(selection.target.hwnd) != selection.pid || selection.pid == 0 {
+            bail!("the original application has closed");
+        }
+        // SAFETY: validated target HWND; Windows may refuse focus, checked below.
+        let _ = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(HWND(
+                selection.target.hwnd as *mut _,
+            ))
+        };
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while foreground_window() != selection.target.hwnd && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if window_caption(selection.target.hwnd) != selection.caption {
+            bail!("the original document changed; select the text again");
+        }
+        if let Some(original) = &selection.runtime_id {
+            if focused_runtime_id(selection.pid)? != *original {
+                bail!("the original editor context changed; select the text again");
+            }
+        } else if !native_text_control(selection.focused_hwnd) {
+            bail!("the original input cannot be safely identified");
+        }
+        if focused_control(selection.target.hwnd)? != selection.focused_hwnd {
+            bail!("the original input control changed; select the text again");
+        }
+        if copy_selected_text(selection.target.hwnd)? != selection.text {
+            bail!("the original selection changed; select it again");
+        }
+        insert(text, selection.target.hwnd).map_err(anyhow::Error::new)
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
     pub enum InsertOutcome {
         Inserted,
+        /// Paste keys were sent but delivery could not be acknowledged. Do not retry.
+        PasteSent,
         /// Text left on the clipboard for the user; carries why.
         CopiedOnly(Reason),
     }
 
+    #[derive(Debug)]
+    pub struct InsertError {
+        /// Text normalized for the target and profile used by this insertion attempt.
+        pub fallback_text: String,
+        recovery_sequence: u32,
+        source: anyhow::Error,
+    }
+
+    impl std::fmt::Display for InsertError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.source.fmt(f)
+        }
+    }
+
+    impl std::error::Error for InsertError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(self.source.as_ref())
+        }
+    }
+
+    pub(super) fn preserve_fallback<T>(
+        result: Result<T>,
+        fallback_text: String,
+    ) -> std::result::Result<T, InsertError> {
+        result.map_err(|source| InsertError {
+            fallback_text,
+            recovery_sequence: unsafe { GetClipboardSequenceNumber() },
+            source,
+        })
+    }
+
     /// Deliver `text` to the focused app. The pasted text is never left in clipboard
     /// history, and the user's previous clipboard (every format) is restored afterwards.
-    pub fn insert(text: &str, release_hwnd: isize) -> Result<InsertOutcome> {
+    pub fn insert(
+        text: &str,
+        release_hwnd: isize,
+    ) -> std::result::Result<InsertOutcome, InsertError> {
+        insert_with_paste(text, release_hwnd, None)
+    }
+
+    pub fn insert_with_paste(
+        text: &str,
+        release_hwnd: isize,
+        paste: Option<PasteChord>,
+    ) -> std::result::Result<InsertOutcome, InsertError> {
+        let recovery_sequence = unsafe { GetClipboardSequenceNumber() };
         let target = foreground_target();
         let snapshot = snapshot_clipboard().unwrap_or(ClipboardSnapshot {
             items: Vec::new(),
             complete: false,
         });
-        let p = plan(&target, release_hwnd, snapshot.complete, self_elevated());
+        let p = plan_with_paste(
+            &target,
+            release_hwnd,
+            snapshot.complete,
+            self_elevated(),
+            paste,
+        );
         let text = p.apply(text);
         if text.is_empty() {
             return Ok(InsertOutcome::Inserted);
         }
-        match p.strategy {
-            Strategy::ClipboardOnly(reason) => {
-                set_clipboard_text(&text, false)?;
-                Ok(InsertOutcome::CopiedOnly(reason))
-            }
-            Strategy::Type => {
-                release_modifiers()?;
-                type_text(&text)?;
-                Ok(InsertOutcome::Inserted)
-            }
-            Strategy::Paste(chord) => {
-                let mut press = || -> Result<()> {
+        let result = (|| -> Result<InsertOutcome> {
+            match p.strategy {
+                Strategy::ClipboardOnly(reason) => {
+                    set_clipboard_text(&text, false)?;
+                    Ok(InsertOutcome::CopiedOnly(reason))
+                }
+                Strategy::Type => {
                     release_modifiers()?;
-                    send(&paste_inputs(chord))
-                };
-                // Restore happens only after the target has actually read the text.
-                match paste_and_restore(&text, &snapshot, &mut press, PASTE_TIMEOUT)? {
-                    PasteResult::Read => Ok(InsertOutcome::Inserted),
-                    PasteResult::Ignored => Ok(InsertOutcome::CopiedOnly(Reason::PasteIgnored)),
+                    if foreground_window() != release_hwnd {
+                        bail!("focus changed before typing");
+                    }
+                    type_text(&text)?;
+                    Ok(InsertOutcome::Inserted)
+                }
+                Strategy::Paste(chord) => {
+                    let mut press = || -> Result<()> {
+                        release_modifiers()?;
+                        if foreground_window() != release_hwnd {
+                            bail!("focus changed before paste");
+                        }
+                        send(&paste_inputs(chord))
+                    };
+                    // Restore happens only after the target has actually read the text.
+                    let mut pid = 0;
+                    unsafe {
+                        GetWindowThreadProcessId(HWND(release_hwnd as *mut _), Some(&mut pid))
+                    };
+                    match paste_for_process(&text, &snapshot, &mut press, PASTE_TIMEOUT, pid)? {
+                        PasteResult::Read => Ok(InsertOutcome::Inserted),
+                        PasteResult::Unconfirmed => Ok(InsertOutcome::PasteSent),
+                        PasteResult::Ignored => {
+                            if read_clipboard_text().as_deref() == Some(text.as_str()) {
+                                Ok(InsertOutcome::CopiedOnly(Reason::PasteIgnored))
+                            } else {
+                                // The user's newer copy won; recovery remains in Aural.
+                                Ok(InsertOutcome::PasteSent)
+                            }
+                        }
+                    }
                 }
             }
-        }
+        })();
+        preserve_fallback(result, text).map_err(|mut error| {
+            error.recovery_sequence = recovery_sequence;
+            error
+        })
     }
 }
 
@@ -988,6 +1425,62 @@ mod tests {
     }
 
     #[test]
+    fn modern_terminal_hosts_use_terminal_paste() {
+        for host in [
+            "Alacritty.exe",
+            "wezterm-gui.exe",
+            "ghostty.exe",
+            "Warp.exe",
+        ] {
+            let p = plan(&target(host, "terminal"), 42, true, false);
+            assert_eq!(
+                p.strategy,
+                Strategy::Paste(PasteChord::CtrlShiftV),
+                "{host}"
+            );
+            assert!(p.single_line, "{host}");
+        }
+        let p = plan(
+            &target("unknown.exe", "CASCADIA_HOSTING_WINDOW_CLASS"),
+            42,
+            true,
+            false,
+        );
+        assert_eq!(p.strategy, Strategy::Paste(PasteChord::CtrlShiftV));
+    }
+
+    #[test]
+    fn terminal_text_preserves_spacing_and_removes_input_controls() {
+        let p = plan(&target("WindowsTerminal.exe", "terminal"), 42, true, false);
+        assert_eq!(
+            p.apply("echo  \"two  spaces\"\r\nnext\x1b[200~\x08\targ"),
+            "echo  \"two  spaces\" next[200~ arg"
+        );
+        assert_eq!(
+            p.apply("one\rtwo\nthree\u{2028}four\u{2029}five"),
+            "one two three four five"
+        );
+    }
+
+    #[test]
+    fn embedded_terminal_override_keeps_focus_and_elevation_guards() {
+        let t = target("Code.exe", "Chrome_WidgetWin_1");
+        let p = plan_with_paste(&t, 42, true, false, Some(PasteChord::CtrlShiftV));
+        assert_eq!(p.strategy, Strategy::Paste(PasteChord::CtrlShiftV));
+        assert_eq!(p.apply("review  this\nplease"), "review  this please");
+        assert_eq!(
+            plan_with_paste(&t, 7, true, false, Some(PasteChord::CtrlShiftV)).strategy,
+            Strategy::ClipboardOnly(Reason::FocusChanged)
+        );
+        let mut elevated = t;
+        elevated.elevated = true;
+        assert_eq!(
+            plan_with_paste(&elevated, 42, true, false, Some(PasteChord::ShiftInsert)).strategy,
+            Strategy::ClipboardOnly(Reason::Elevated)
+        );
+    }
+
+    #[test]
     fn focus_changed_falls_back_to_clipboard_only() {
         let p = plan(&target("notepad.exe", "Notepad"), 7, true, false);
         assert_eq!(p.strategy, Strategy::ClipboardOnly(Reason::FocusChanged));
@@ -1011,6 +1504,22 @@ mod tests {
     fn nonrestorable_clipboard_switches_to_typing() {
         let p = plan(&target("notepad.exe", "Notepad"), 42, false, false);
         assert_eq!(p.strategy, Strategy::Type);
+    }
+
+    #[test]
+    fn a_terminal_never_uses_unicode_key_injection_as_a_fallback() {
+        let p = plan(&target("WindowsTerminal.exe", "terminal"), 42, false, false);
+        assert_eq!(p.strategy, Strategy::ClipboardOnly(Reason::PasteIgnored));
+        assert_eq!(p.apply("first\nsecond"), "first second");
+    }
+
+    #[test]
+    fn failed_terminal_paste_retains_the_normalized_fallback_text() {
+        let p = plan(&target("WindowsTerminal.exe", "terminal"), 42, true, false);
+        let raw = "echo first\nsecond\x1b\targ";
+        let failed: anyhow::Result<()> = Err(anyhow::anyhow!("paste failed"));
+        let error = win::preserve_fallback(failed, p.apply(raw)).unwrap_err();
+        assert_eq!(error.fallback_text, "echo first second arg");
     }
 
     // Formats Aural saves and puts back around a paste. Typing is only for clipboards
@@ -1192,6 +1701,397 @@ mod tests {
             assert!(t0.elapsed() < Duration::from_secs(3));
             // The old clipboard must not replace the text the user still needs to paste.
             assert_eq!(read_clipboard_text().as_deref(), Some("dictated text"));
+        }
+
+        /// Subprocess fixture: its clipboard owner window has a genuinely unrelated PID.
+        #[test]
+        #[ignore = "invoked by the unrelated-reader integration tests"]
+        fn unrelated_reader_process() {
+            assert_eq!(std::env::var("AURAL_CLIPBOARD_READER").as_deref(), Ok("1"));
+            assert!(
+                read_clipboard_text().is_none(),
+                "an unrelated reader consumed delayed text"
+            );
+        }
+
+        fn unrelated_reader() -> std::process::Child {
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "insert::tests::delayed_render::unrelated_reader_process",
+                    "--ignored",
+                    "--test-threads=1",
+                ])
+                .env("AURAL_CLIPBOARD_READER", "1")
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        }
+
+        #[test]
+        fn an_unrelated_process_cannot_acknowledge_an_ignored_paste() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            let mut child = None;
+            let mut press = || -> anyhow::Result<()> {
+                child = Some(unrelated_reader());
+                Ok(())
+            };
+            let got = paste_and_restore(
+                "recovery text",
+                &ClipboardSnapshot::text("previous"),
+                &mut press,
+                Duration::from_secs(2),
+            )
+            .unwrap();
+            assert_eq!(got, PasteResult::Ignored);
+            assert!(child.unwrap().wait().unwrap().success());
+            assert_eq!(read_clipboard_text().as_deref(), Some("recovery text"));
+        }
+
+        #[test]
+        fn a_target_can_read_after_an_unrelated_process_was_refused() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            let (tx, rx) = mpsc::channel();
+            let mut press = || -> anyhow::Result<()> {
+                let mut child = unrelated_reader();
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    assert!(child.wait().unwrap().success());
+                    let _ = tx.send(read_clipboard_text());
+                });
+                Ok(())
+            };
+            let got = paste_and_restore(
+                "target text",
+                &ClipboardSnapshot::text("previous"),
+                &mut press,
+                Duration::from_secs(3),
+            )
+            .unwrap();
+            assert_eq!(got, PasteResult::Read);
+            assert_eq!(
+                rx.recv_timeout(Duration::from_secs(2)).unwrap().as_deref(),
+                Some("target text")
+            );
+            assert_eq!(read_clipboard_text().as_deref(), Some("previous"));
+        }
+
+        /// Visible disposable Windows edit controls exercise actual Copy/Paste and focus.
+        #[test]
+        #[ignore = "desktop focus integration; run explicitly on the interactive desktop"]
+        fn selected_text_round_trip_preserves_clipboard_and_rejects_changed_selection() {
+            use windows::core::w;
+            use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+            use windows::Win32::UI::WindowsAndMessaging::*;
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            let original = snapshot_clipboard().unwrap();
+            let (tx, rx) = mpsc::channel();
+            let (stop_tx, stop_rx) = mpsc::channel();
+            let (focus_tx, focus_rx) = mpsc::channel::<bool>();
+            let (ack_tx, ack_rx) = mpsc::channel();
+            let gui = std::thread::spawn(move || unsafe {
+                let make = |title| {
+                    CreateWindowExW(
+                        WINDOW_EX_STYLE(0),
+                        w!("EDIT"),
+                        title,
+                        WINDOW_STYLE(0x10CF0004),
+                        100,
+                        100,
+                        600,
+                        200,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                };
+                let target = make(w!("Before selected after"));
+                let review = make(w!("Aural disposable review"));
+                let alternate = CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("EDIT"),
+                    w!("selected"),
+                    WINDOW_STYLE(0x50000004),
+                    20,
+                    80,
+                    300,
+                    40,
+                    Some(target),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+                let _ = SetForegroundWindow(target);
+                let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(target));
+                SendMessageW(target, 0x00B1, Some(WPARAM(7)), Some(LPARAM(15)));
+                tx.send((target.0 as isize, review.0 as isize)).unwrap();
+                while stop_rx.try_recv().is_err() {
+                    if let Ok(other) = focus_rx.try_recv() {
+                        let control = if other { alternate } else { target };
+                        let _ = SetForegroundWindow(target);
+                        let _ =
+                            windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(control));
+                        SendMessageW(
+                            control,
+                            0x00B1,
+                            Some(WPARAM(if other { 0 } else { 7 })),
+                            Some(LPARAM(if other { 8 } else { 15 })),
+                        );
+                        ack_tx.send(()).unwrap();
+                    }
+                    let mut msg = MSG::default();
+                    while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                        let _ = TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                let _ = DestroyWindow(target);
+                let _ = DestroyWindow(review);
+            });
+            let (target, review) = rx.recv().unwrap();
+            let result = (|| -> anyhow::Result<()> {
+                set_clipboard_text("preserved clipboard", false)?;
+                let selection =
+                    capture_selection().map_err(|e| anyhow::anyhow!("initial capture: {e}"))?;
+                assert_eq!(selection.text, "selected");
+                assert_eq!(
+                    read_clipboard_text().as_deref(),
+                    Some("preserved clipboard")
+                );
+                // Another field with identical selected text is still the wrong destination.
+                // Keep the host active for this guard check so its top-level Edit
+                // procedure cannot reset focus while activating from the review.
+                focus_tx.send(true).unwrap();
+                ack_rx.recv().unwrap();
+                assert!(replace_selection(&selection, "WRONG FIELD", target).is_err());
+                focus_tx.send(false).unwrap();
+                ack_rx.recv().unwrap();
+                unsafe {
+                    let _ = SetForegroundWindow(HWND(review as *mut _));
+                }
+                let deadline = Instant::now() + Duration::from_secs(1);
+                while foreground_window() != review && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                assert_eq!(
+                    replace_selection(&selection, "REVISED", review)
+                        .map_err(|e| anyhow::anyhow!("review apply: {e}"))?,
+                    InsertOutcome::Inserted
+                );
+                let mut buf = [0u16; 128];
+                let n = unsafe { GetWindowTextW(HWND(target as *mut _), &mut buf) };
+                assert_eq!(
+                    String::from_utf16_lossy(&buf[..n as usize]),
+                    "Before REVISED after"
+                );
+                assert_eq!(
+                    read_clipboard_text().as_deref(),
+                    Some("preserved clipboard")
+                );
+                // The stale snapshot cannot replace the newly selected/replaced text.
+                unsafe {
+                    let _ = SetForegroundWindow(HWND(review as *mut _));
+                }
+                let deadline = Instant::now() + Duration::from_secs(1);
+                while foreground_window() != review && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                assert!(replace_selection(&selection, "DUPLICATE", review).is_err());
+                let n = unsafe { GetWindowTextW(HWND(target as *mut _), &mut buf) };
+                assert_eq!(
+                    String::from_utf16_lossy(&buf[..n as usize]),
+                    "Before REVISED after"
+                );
+                Ok(())
+            })();
+            stop_tx.send(()).unwrap();
+            gui.join().unwrap();
+            restore_clipboard(&original).unwrap();
+            result.unwrap();
+        }
+
+        #[test]
+        fn failed_delivery_recovery_never_overwrites_a_newer_copy() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            set_clipboard_text("original", false).unwrap();
+            let error = win::preserve_fallback::<()>(
+                Err(anyhow::anyhow!("input failed")),
+                "fallback".into(),
+            )
+            .unwrap_err();
+            set_clipboard_text("newer user copy", false).unwrap();
+            assert!(!recover_insert_error(&error).unwrap());
+            assert_eq!(read_clipboard_text().as_deref(), Some("newer user copy"));
+        }
+
+        #[test]
+        fn failed_paste_keys_leave_rendered_recovery_without_overwriting_newer_copy() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            set_clipboard_text("previous", false).unwrap();
+            let mut press =
+                || -> anyhow::Result<()> { anyhow::bail!("focus changed before sending keys") };
+            assert!(paste_and_restore(
+                "normalized recovery",
+                &ClipboardSnapshot::text("previous"),
+                &mut press,
+                Duration::from_secs(1)
+            )
+            .is_err());
+            assert_eq!(
+                read_clipboard_text().as_deref(),
+                Some("normalized recovery")
+            );
+            let error = win::preserve_fallback::<()>(
+                Err(anyhow::anyhow!("input failed")),
+                "normalized recovery".into(),
+            )
+            .unwrap_err();
+            set_clipboard_text("newer copy", false).unwrap();
+            assert!(!recover_insert_error(&error).unwrap());
+            assert_eq!(read_clipboard_text().as_deref(), Some("newer copy"));
+        }
+
+        #[test]
+        fn failed_delivery_recovers_normalized_text_when_clipboard_is_unchanged() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            set_clipboard_text("original", false).unwrap();
+            let error = win::preserve_fallback::<()>(
+                Err(anyhow::anyhow!("input failed")),
+                "normalized fallback".into(),
+            )
+            .unwrap_err();
+            assert!(recover_insert_error(&error).unwrap());
+            assert_eq!(
+                read_clipboard_text().as_deref(),
+                Some("normalized fallback")
+            );
+        }
+
+        /// Runs inside the disposable real Windows Terminal tab, consuming text only.
+        #[test]
+        #[ignore = "subprocess fixture for real Windows Terminal delivery"]
+        fn windows_terminal_input_fixture() {
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn GetStdHandle(kind: u32) -> *mut std::ffi::c_void;
+                fn GetConsoleMode(handle: *mut std::ffi::c_void, mode: *mut u32) -> i32;
+                fn SetConsoleMode(handle: *mut std::ffi::c_void, mode: u32) -> i32;
+                fn ReadConsoleW(
+                    handle: *mut std::ffi::c_void,
+                    buffer: *mut u16,
+                    count: u32,
+                    read: *mut u32,
+                    control: *mut std::ffi::c_void,
+                ) -> i32;
+            }
+            let evidence = std::env::var("AURAL_TERMINAL_EVIDENCE").unwrap();
+            unsafe {
+                let input = GetStdHandle((-10i32) as u32);
+                let mut mode = 0;
+                assert_ne!(GetConsoleMode(input, &mut mode), 0);
+                // Raw character input: no command interpreter receives dictated text.
+                assert_ne!(SetConsoleMode(input, mode & !0x6), 0);
+                std::fs::write(format!("{evidence}.ready"), b"ready").unwrap();
+                let expected = "Aural test C:\\path\\with spaces \"two  spaces\" next arg";
+                let mut received = String::new();
+                while received.len() < expected.len() {
+                    let mut buffer = [0u16; 512];
+                    let mut count = 0;
+                    assert_ne!(
+                        ReadConsoleW(
+                            input,
+                            buffer.as_mut_ptr(),
+                            buffer.len() as u32,
+                            &mut count,
+                            std::ptr::null_mut()
+                        ),
+                        0
+                    );
+                    received.push_str(&String::from_utf16_lossy(&buffer[..count as usize]));
+                }
+                std::fs::write(&evidence, received).unwrap();
+                let _ = SetConsoleMode(input, mode);
+            }
+        }
+
+        #[test]
+        #[ignore = "opens a disposable real Windows Terminal tab; run explicitly"]
+        fn real_windows_terminal_receives_text_once_and_reports_unidentified_reader_honestly() {
+            let _g = CLIPBOARD.lock().unwrap_or_else(|p| p.into_inner());
+            let original = snapshot_clipboard().unwrap();
+            let evidence =
+                std::env::temp_dir().join(format!("aural-terminal-{}.txt", std::process::id()));
+            let ready = format!("{}.ready", evidence.display());
+            let exe = std::env::current_exe().unwrap();
+            let script = format!("$env:AURAL_TERMINAL_EVIDENCE='{}'; & '{}' --exact insert::tests::delayed_render::windows_terminal_input_fixture --ignored --test-threads=1", evidence.display().to_string().replace('\'', "''"), exe.display().to_string().replace('\'', "''"));
+            let script_path = evidence.with_extension("ps1");
+            std::fs::write(&script_path, script).unwrap();
+            let wt = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap())
+                .join("Microsoft/WindowsApps/wt.exe");
+            let mut launcher = std::process::Command::new(wt)
+                .args([
+                    "-w",
+                    "new",
+                    "new-tab",
+                    "--title",
+                    "Aural delivery verification",
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-File",
+                    script_path.to_str().unwrap(),
+                ])
+                .spawn()
+                .unwrap();
+            let result = (|| -> anyhow::Result<()> {
+                let deadline = Instant::now() + Duration::from_secs(20);
+                while !std::path::Path::new(&ready).exists() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                anyhow::ensure!(
+                    std::path::Path::new(&ready).exists(),
+                    "terminal fixture did not become ready"
+                );
+                let target = foreground_target();
+                anyhow::ensure!(
+                    target
+                        .class
+                        .eq_ignore_ascii_case("CASCADIA_HOSTING_WINDOW_CLASS"),
+                    "Windows Terminal is not foreground: {target:?}"
+                );
+                set_clipboard_text("terminal previous clipboard", false)?;
+                let input = "Aural test C:\\path\\with spaces \"two  spaces\"\nnext\targ";
+                let outcome = insert(input, target.hwnd)?;
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !evidence.exists() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let actual = std::fs::read_to_string(&evidence)?;
+                assert_eq!(
+                    actual,
+                    "Aural test C:\\path\\with spaces \"two  spaces\" next arg"
+                );
+                // Windows Terminal opens with a NULL clipboard HWND on this desktop.
+                // Content observation above proves this fixture received it, while
+                // production must conservatively report the unidentifiable reader.
+                assert_eq!(outcome, InsertOutcome::PasteSent);
+                assert_eq!(read_clipboard_text().as_deref(), Some(actual.as_str()));
+                Ok(())
+            })();
+            // Reap the Windows Terminal launcher after the fixture has completed.
+            let launcher_status = launcher.wait();
+            restore_clipboard(&original).unwrap();
+            let _ = std::fs::remove_file(evidence);
+            let _ = std::fs::remove_file(ready);
+            let _ = std::fs::remove_file(script_path);
+            assert!(
+                launcher_status.unwrap().success(),
+                "Windows Terminal launcher failed"
+            );
+            result.unwrap();
         }
 
         /// What a browser or Office puts on the clipboard: text plus HTML, an image and an

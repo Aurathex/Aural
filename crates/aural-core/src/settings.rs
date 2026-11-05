@@ -136,6 +136,8 @@ pub enum CleanupMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TextSettings {
+    /// Review and intentionally apply selected-text corrections with Ctrl+Alt+T.
+    pub touchup: bool,
     pub cleanup: CleanupMode,
     /// Apply the personal dictionary.
     pub dictionary: bool,
@@ -150,6 +152,7 @@ pub struct TextSettings {
 impl Default for TextSettings {
     fn default() -> Self {
         Self {
+            touchup: true,
             cleanup: CleanupMode::Off,
             dictionary: true,
             ai_model: None,
@@ -165,11 +168,21 @@ impl Default for TextSettings {
 #[serde(default)]
 pub struct AppProfile {
     pub app: String,
+    /// Explicit paste shortcut for terminal hosts; unset uses automatic delivery.
+    pub paste_shortcut: Option<PasteShortcut>,
     pub cleanup: Option<CleanupMode>,
     pub dictionary: Option<bool>,
     pub live: Option<bool>,
     /// Keep dictations in this app out of history (password managers, banking).
     pub history: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PasteShortcut {
+    CtrlV,
+    CtrlShiftV,
+    ShiftInsert,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -274,6 +287,15 @@ mod tests {
     }
 
     #[test]
+    fn touchup_is_ready_by_default_but_respects_an_explicit_disable() {
+        assert!(Settings::default().text.touchup);
+        let old: Settings = serde_json::from_str(r#"{"text":{"cleanup":"off"}}"#).unwrap();
+        assert!(old.text.touchup);
+        let disabled: Settings = serde_json::from_str(r#"{"text":{"touchup":false}}"#).unwrap();
+        assert!(!disabled.text.touchup);
+    }
+
+    #[test]
     fn ai_rewording_is_off_unless_chosen_also_for_older_settings_files() {
         let s = Settings::default();
         assert!(!s.text.ai_reword_words && !s.text.ai_reword_numbers);
@@ -327,6 +349,25 @@ mod tests {
         let p: AppProfile = serde_json::from_str(r#"{"app":"slack.exe","cleanup":"ai"}"#).unwrap();
         assert_eq!(p.cleanup, Some(CleanupMode::Ai));
         assert_eq!(p.history, None);
+        assert_eq!(p.paste_shortcut, None);
+    }
+
+    #[test]
+    fn terminal_paste_override_survives_settings_round_trip() {
+        let mut s: Settings = serde_json::from_str(
+            r#"{"apps":[{"app":"code.exe","paste_shortcut":"ctrl_shift_v","cleanup":"off"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(s.apps[0].paste_shortcut, Some(PasteShortcut::CtrlShiftV));
+        assert_eq!(s.apps[0].cleanup, Some(CleanupMode::Off));
+        assert_eq!(s.apps[0].dictionary, None);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        save(&path, &s).unwrap();
+        assert_eq!(load(&path).unwrap().settings, s);
+        s.apps[0].paste_shortcut = None;
+        save(&path, &s).unwrap();
+        assert_eq!(load(&path).unwrap().settings.apps[0].paste_shortcut, None);
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub mod sounds;
 pub mod state;
 pub mod text;
 pub mod text_engine;
+pub mod touchup;
 pub mod tray;
 
 use crate::dictation::{Dictation, Input};
@@ -35,7 +36,15 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
     let mut notice = loaded.notice;
 
     let chord = match Chord::parse(&s.hotkey.keys) {
-        Ok(c) => c,
+        Ok(c) if !s.text.touchup || touchup::validate_dictation_chord(&c).is_ok() => c,
+        Ok(_) => {
+            notice = Some(
+                "Ctrl + Alt + T is reserved for AI touch-up; dictation restored to Ctrl + Win."
+                    .into(),
+            );
+            s.hotkey.keys = settings::Settings::default().hotkey.keys;
+            Chord::parse(&s.hotkey.keys)?
+        }
         Err(e) => {
             notice = Some(format!(
                 "Your hotkey could not be read ({e}); Ctrl + Win restored."
@@ -105,6 +114,7 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         stats: Mutex::new(aural_text::stats::Stats::load(&paths_stats).unwrap_or_default()),
         text_catalog: aural_models::text::TextCatalog::builtin(),
         text_engine: Default::default(),
+        touchup: Default::default(),
         text_downloads: Mutex::new(HashMap::new()),
     });
     handle.manage(app.clone());
@@ -163,6 +173,7 @@ fn start(handle: &tauri::AppHandle) -> anyhow::Result<()> {
         Err(e) => app.set_notice(format!("The global hotkey could not be installed: {e}")),
     }
 
+    touchup::start_shortcut(&app);
     app.reload_engine();
     text::reload_text_engine(&app);
     hwtest::spawn_runner(&app);
@@ -205,6 +216,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            touchup::get_touchup,
+            touchup::apply_touchup,
+            touchup::cancel_touchup,
             commands::dismiss_notice,
             commands::check_hotkey,
             commands::pause_hotkey,

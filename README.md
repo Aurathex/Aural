@@ -1,5 +1,11 @@
 # Aural
 
+**Local voice dictation and AI writing tools for Windows. Your voice stays on your PC.**
+
+[Download for Windows](https://github.com/Aurathex/Aural/releases/latest) · [Website](https://aurathex.github.io/Aural/) · [Report a problem](https://github.com/Aurathex/Aural/issues) · [Star the project](https://github.com/Aurathex/Aural)
+
+![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-111111) ![Local processing](https://img.shields.io/badge/processing-local-111111) ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-111111)
+
 Local voice dictation for Windows. Hold a hotkey, speak, let go — your words are
 transcribed **on your own PC** and typed into whatever app you're using.
 
@@ -20,14 +26,14 @@ The **only** official download is the Releases page of the official repository:
 <https://github.com/Aurathex/Aural/releases>
 
 1. Open the latest release (currently
-   [Aural 0.3.0](https://github.com/Aurathex/Aural/releases/tag/v0.3.0)).
-2. Under **Assets**, download **`Aural_0.3.0_x64-setup.exe`** (the Windows installer,
+   [Aural 0.3.1](https://github.com/Aurathex/Aural/releases/tag/v0.3.1)).
+2. Under **Assets**, download **`Aural_0.3.1_x64-setup.exe`** (the Windows installer,
    64-bit; for a newer release the version number in the name changes).
 
 Aural runs on 64-bit Windows 10 (version 1809 or later) and Windows 11. It isn't in the
 Microsoft Store or WinGet. Copies from anywhere else (mirrors, download sites, "cracked"
-or "pro" versions, re-uploads) are not official, and redistributing Aural is not
-permitted by its license.
+or "pro" versions, re-uploads) are not official. You may modify and share Aural for permitted noncommercial purposes under
+[LICENSE.md](LICENSE.md). Commercial use requires separate permission from Aurathex.
 
 ### The installer is not code-signed
 
@@ -60,7 +66,7 @@ Aural's first releases are **not code-signed**. What that means for you:
    on the same release page:
 
    ```powershell
-   Get-FileHash .\Aural_0.3.0_x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\Aural_0.3.1_x64-setup.exe -Algorithm SHA256
    ```
 
 3. **Build provenance.** Each release installer is built by the repository's public
@@ -69,7 +75,7 @@ Aural's first releases are **not code-signed**. What that means for you:
    what that workflow built, and from which commit:
 
    ```powershell
-   gh attestation verify .\Aural_0.3.0_x64-setup.exe --repo Aurathex/Aural
+   gh attestation verify .\Aural_0.3.1_x64-setup.exe --repo Aurathex/Aural
    ```
 
 ### Inspect it yourself, or ask an AI coding agent to
@@ -88,7 +94,7 @@ Worth looking at:
 | Keyboard hook, clipboard and text insertion | `crates/aural-platform/src/` |
 | Third-party licenses | `THIRD_PARTY_NOTICES.md` |
 
-A prompt you could use: *"Review github.com/Aurathex/Aural at tag v0.3.0. Check what the
+A prompt you could use: *"Review github.com/Aurathex/Aural at tag v0.3.1. Check what the
 installer and uninstaller change on my PC, every network request the app can make,
 where speech models are downloaded from and how they are verified, how the keyboard
 hook and clipboard are used, and whether the release workflow could ship anything other
@@ -97,7 +103,7 @@ guarantee.
 
 ## Install
 
-1. Double-click **`Aural_0.3.0_x64-setup.exe`**. If Windows SmartScreen warns you, see
+1. Double-click **`Aural_0.3.1_x64-setup.exe`**. If Windows SmartScreen warns you, see
    [The installer is not code-signed](#the-installer-is-not-code-signed) above.
 2. Follow the installer. It installs Aural **for your Windows user only** and doesn't
    need administrator rights. The default folder is `%LOCALAPPDATA%\Aural`.
@@ -165,9 +171,37 @@ your settings, history and dictionary, and the startup entry.
 
 ## License
 
-Aural is **source-available**, not open source. The source is public, and you may use
-Aural for free for personal and other **noncommercial** purposes under the
-[PolyForm Strict License 1.0.0](LICENSE.md). The license does not allow modifying or
-redistributing Aural. Commercial use needs a separate license from Aurathex.
-See [docs/LICENSING.md](docs/LICENSING.md) for the reasoning. Speech models and
+Aural is **source-available**, under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+Modification and redistribution are allowed for permitted noncommercial purposes.
+Commercial use requires separate permission from Aurathex. See [licensing](docs/LICENSING.md).
+Speech models and
 third-party components keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+
+## What is new in 0.3.1
+
+- **AI touch-up for selected text:** select a sentence or paragraph, press
+  **Ctrl + Alt + T**, review the local AI suggestion, and choose **Apply**.
+  Paragraph breaks are preserved. No text is replaced without approval. Download
+  the small writing helper in Writing settings if it is not installed. You can
+  disable the shortcut there. Selected text is limited to 3,000 characters and
+  supported inputs must expose a verifiable selection destination. Keep the original
+  document open; cancel and capture again if you switch its tabs or documents
+  while the preview is open.
+- **Cohere Transcribe:** an optional local INT4 speech model, verified on Windows
+  through the CPU worker. About 2 GB download; English is supported by this adapter.
+  No Cohere GPU support is claimed for this release.
+- **Terminal delivery:** recognized terminals use their paste shortcut; configure
+  Terminal paste for VS Code or Cursor in Writing → Apps. Overrides apply to the
+  whole host app. Aural does not press Enter or submit prompts.
+- **Clipboard reliability:** unrelated background readers do not count as a
+  successful paste into the target. A newer user copy is preserved during recovery.
+- **License:** PolyForm Noncommercial License 1.0.0, allowing modification and
+  sharing for permitted noncommercial purposes.
+
+For exact validation and limitations see [0.3.1 readiness](docs/release/v0.3.1-readiness.md).
+
+## Help Aural grow
+
+If Aural is useful, [star the repository](https://github.com/Aurathex/Aural),
+share the official download, and report a real workflow you would like improved.
+Stars help others discover the project; detailed bug reports help improve it.

@@ -12,12 +12,13 @@ export default defineConfig({
     target: "es2022",
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
-        pill: resolve(__dirname, "pill.html"),
+        main: resolve(import.meta.dirname, "index.html"),
+        pill: resolve(import.meta.dirname, "pill.html"),
       },
     },
   },
   test: {
     include: ["src/**/*.test.ts"],
+    fsModuleCachePath: resolve(import.meta.dirname, "node_modules/.vitest-cache"),
   },
 });

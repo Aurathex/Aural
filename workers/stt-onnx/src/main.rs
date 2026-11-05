@@ -9,6 +9,7 @@ fn main() {
         vec![
             aural_engines::Engine::Parakeet,
             aural_engines::Engine::Moonshine,
+            aural_engines::Engine::Cohere,
         ],
         |model, engine, backend, threads| {
             aural_engines::build_engine(engine, model, backend, threads)

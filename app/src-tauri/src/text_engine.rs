@@ -114,16 +114,83 @@ impl TextHost {
         }
         match result {
             Ok((client, label)) => {
+                *self.client.lock().unwrap_or_else(|p| p.into_inner()) = Some(client);
                 self.set(TextStatus::Ready {
                     model: model.to_owned(),
                     label,
                 });
-                *self.client.lock().unwrap_or_else(|p| p.into_inner()) = Some(client);
             }
             Err(e) => self.set(TextStatus::Error {
                 model: model.to_owned(),
                 message: e.to_string(),
             }),
+        }
+    }
+
+    /// Explicit selected-text editing reports failures instead of silently falling back.
+    pub fn touchup(&self, text: &str) -> Result<String, String> {
+        use aural_text::rewrite;
+        let mut guard = self
+            .client
+            .lock()
+            .map_err(|_| "Writing helper is unavailable")?;
+        let client = guard
+            .as_mut()
+            .ok_or("Download the writing helper and wait until it is ready in Writing settings.")?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let result = (|| {
+            let mut output = String::new();
+            for part in rewrite::touchup_parts(text) {
+                let trimmed = part.trim();
+                if trimmed.is_empty() {
+                    output.push_str(part);
+                    continue;
+                }
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    return Err(ClientError::Timeout);
+                }
+                let answer = client.generate(
+                    rewrite::touchup_system(),
+                    &rewrite::touchup_examples(),
+                    &rewrite::user_prompt(trimmed),
+                    rewrite::touchup_tokens(trimmed),
+                    remaining,
+                )?;
+                let fixed =
+                    rewrite::check_touchup(trimmed, &answer).map_err(ClientError::Engine)?;
+                // Preserve whitespace outside the selected paragraph's words exactly.
+                let leading = part.len() - part.trim_start().len();
+                let trailing = part.trim_end().len();
+                output.push_str(&part[..leading]);
+                output.push_str(&fixed);
+                output.push_str(&part[trailing..]);
+            }
+            Ok(output)
+        })();
+        match result {
+            Ok(answer) => rewrite::check_with(
+                text,
+                &answer,
+                rewrite::Allow {
+                    words: true,
+                    numbers: false,
+                },
+            )
+            .map_err(|e| {
+                format!("The writing helper's suggestion was rejected: {e}. Original text kept.")
+            })
+            .map(|_| answer),
+            Err(e) => {
+                if replace_after(&e) {
+                    if let Some(k) = self.killer.lock().ok().and_then(|mut g| g.take()) {
+                        k.kill();
+                    }
+                    *guard = None;
+                    self.set(TextStatus::Off);
+                }
+                Err(format!("AI touch-up failed: {e}. Original text kept."))
+            }
         }
     }
 
@@ -185,5 +252,55 @@ mod tests {
         assert!(replace_after(&ClientError::Timeout));
         assert!(replace_after(&ClientError::WorkerDied("x".into())));
         assert!(!replace_after(&ClientError::Engine("bad input".into())));
+    }
+}
+
+#[cfg(test)]
+mod touchup_integration {
+    use super::*;
+    #[test]
+    #[ignore = "requires built ONNX worker and AURAL_TEST_LLM_DIR"]
+    fn local_qwen_reviews_complete_paragraphs() {
+        let host = TextHost::default();
+        let worker = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("aural-stt-onnx.exe");
+        let mut client = SttClient::spawn(WorkerSpec {
+            exe: worker,
+            args: vec![],
+        })
+        .unwrap();
+        let label = client
+            .load_text(
+                PathBuf::from(std::env::var("AURAL_TEST_LLM_DIR").unwrap()),
+                4,
+                Duration::from_secs(180),
+            )
+            .unwrap();
+        *host.killer.lock().unwrap() = Some(client.killer());
+        *host.client.lock().unwrap() = Some(client);
+        host.set(TextStatus::Ready {
+            model: "test-local-qwen".into(),
+            label,
+        });
+        let original = "me and sam was going to the shop. we has 42 dollars and needs to buy lunch.\n\ni dont think we should spends it all because we needs the bus fare home.";
+        let started = std::time::Instant::now();
+        let suggestion = host.touchup(original).unwrap();
+        eprintln!(
+            "Selected paragraph touch-up: {} ms; {suggestion}",
+            started.elapsed().as_millis()
+        );
+        assert_ne!(suggestion, original);
+        assert!(suggestion.contains("42"));
+        assert!(
+            suggestion.contains("\n\n"),
+            "paragraph breaks were lost: {suggestion}"
+        );
+        assert!(suggestion.to_lowercase().contains("bus"));
+        host.unload();
     }
 }

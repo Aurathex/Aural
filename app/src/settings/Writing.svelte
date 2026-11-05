@@ -2,7 +2,7 @@
   import { call } from "../lib/api";
   import { appLabel, cleanupText, REWORD_NUMBERS, REWORD_WORDS } from "../lib/copy";
   import { formatBytes } from "../lib/format";
-  import type { AppProfile, AppState, CleanupMode, DictionaryEntry, Settings } from "../lib/types";
+  import type { AppProfile, AppState, CleanupMode, DictionaryEntry, PasteShortcut, Settings } from "../lib/types";
 
   let {
     app,
@@ -85,6 +85,16 @@
   {#if error}<div class="callout" role="alert"><span class="text">{error}</span></div>{/if}
 
   <section class="section">
+    <h2>Touch up selected writing</h2>
+    <div class="rows"><div class="row">
+      <div class="text"><div class="title">AI touch-up · Ctrl + Alt + T</div>
+        <div class="desc">Select a sentence or paragraph in another app, then press Ctrl + Alt + T. Review grammar, spelling and wording fixes from the local writing helper. Only Apply replaces your selection. Up to 3,000 characters at a time.</div>
+      </div>
+      <div class="control"><button class="switch" role="switch" aria-checked={app.settings.text.touchup} aria-label="AI touch-up" onclick={() => save({ ...app.settings, text: { ...app.settings.text, touchup: !app.settings.text.touchup } })}></button></div>
+    </div></div>
+  </section>
+
+  <section class="section">
     <h2>Tidy up</h2>
     <div class="rows">
       <div class="row">
@@ -127,9 +137,9 @@
             <div class="desc">
               {#if helper.state === "installed"}
                 {#if app.text_engine.state === "loading"}Getting ready…
-                {:else if helperReady}Ready. Used when tidy-up is set to AI.
+                {:else if helperReady}Ready for AI tidy-up and selected-text touch-up.
                 {:else if app.text_engine.state === "error"}It couldn't start on this PC, so the light tidy-up is used.
-                {:else}Downloaded. It starts when tidy-up is set to AI.{/if}
+                {:else}Downloaded. Enable AI tidy-up or selected-text touch-up to start it.{/if}
               {:else if helper.state === "downloading"}
                 Downloading… {formatBytes(helper.downloaded)} of {formatBytes(helper.size_bytes)}
               {:else}
@@ -223,10 +233,20 @@
   <section class="section">
     <h2>Apps</h2>
     <p class="muted intro">Change the settings for one app. Anything left on “Default” follows the settings above; apps not listed use them too.</p>
+    <p class="muted intro">For Claude Code in VS Code or Cursor, add the host app (code or cursor) and choose Terminal paste. This applies to every input in that app. Choose Off for tidy up when dictating commands or code.</p>
+    <p class="muted intro">Automatic uses normal delivery outside recognized terminals. Choosing a paste shortcut keeps dictation on one line. Terminal paste uses Ctrl + Shift + V; use another shortcut if you changed your terminal's bindings.</p>
     <div class="rows">
       {#each app.settings.apps as p, i (p.app)}
         <div class="row app-row">
           <div class="text"><div class="title">{appLabel(p.app)}</div></div>
+          <label class="mini">Text delivery
+            <select class="field small" value={p.paste_shortcut ?? "auto"} onchange={(ev) => setApp(i, { paste_shortcut: ev.currentTarget.value === "auto" ? null : ev.currentTarget.value as PasteShortcut })}>
+              <option value="auto">Automatic</option>
+              <option value="ctrl_shift_v">Terminal paste</option>
+              <option value="ctrl_v">Ctrl + V</option>
+              <option value="shift_insert">Shift + Insert</option>
+            </select>
+          </label>
           <label class="mini">Tidy up
             <select class="field small" value={p.cleanup ?? "default"} onchange={(ev) => setApp(i, { cleanup: ev.currentTarget.value === "default" ? null : (ev.currentTarget.value as CleanupMode) })}>
               <option value="default">Default</option><option value="off">Off</option><option value="light">Light</option><option value="ai">AI</option>

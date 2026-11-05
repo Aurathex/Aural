@@ -24,14 +24,20 @@ pub enum State {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    HotkeyDown { t_ms: u64 },
-    HotkeyUp { t_ms: u64 },
+    HotkeyDown {
+        t_ms: u64,
+    },
+    HotkeyUp {
+        t_ms: u64,
+    },
     Cancel,
     MaxDurationReached,
     Transcript(String),
     TranscriptEmpty,
     Inserted,
     InsertFailed(ErrorCode),
+    /// Platform already handled clipboard recovery; preserve any newer user copy.
+    InsertRecovery(ErrorCode),
     Failed(ErrorCode),
     Settled,
 }
@@ -118,6 +124,13 @@ pub fn step(state: State, event: Event, mode: HotkeyMode) -> (State, Vec<Effect>
         (State::Inserting { .. }, E::Inserted) => {
             (State::Done, vec![Effect::Pill(PillState::Success)])
         }
+        (State::Inserting { text }, E::InsertRecovery(code)) => (
+            State::Done,
+            vec![
+                Effect::RememberLast(text),
+                Effect::Pill(PillState::Error(code)),
+            ],
+        ),
         // Never lose a transcript: it goes to the clipboard and the tray's
         // "Paste last transcript".
         (State::Inserting { text }, E::InsertFailed(code)) => (
@@ -254,6 +267,25 @@ mod tests {
         let (s, fx) = step(State::Processing, Event::TranscriptEmpty, PushToTalk);
         assert_eq!(s, State::Idle);
         assert_eq!(fx, vec![Effect::Pill(PillState::Hidden)]);
+    }
+
+    #[test]
+    fn platform_recovery_never_recopies_over_a_newer_user_clipboard() {
+        let (state, effects) = step(
+            State::Inserting {
+                text: "retained transcript".into(),
+            },
+            Event::InsertRecovery(ErrorCode::DeliveryUnconfirmed),
+            HotkeyMode::PushToTalk,
+        );
+        assert_eq!(state, State::Done);
+        assert_eq!(
+            effects,
+            vec![
+                Effect::RememberLast("retained transcript".into()),
+                Effect::Pill(PillState::Error(ErrorCode::DeliveryUnconfirmed)),
+            ]
+        );
     }
 
     #[test]

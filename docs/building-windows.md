@@ -77,10 +77,14 @@ Ignored by default; run them on a real Windows desktop:
 
 ```powershell
 cargo test -p aural-audio -- --ignored                         # microphone
-cargo test -p aural-platform -- --ignored --test-threads=1     # hotkey hook, autostart, real paste into a window
+cargo test -p aural-platform --test insert_window -- --ignored --test-threads=1     # hotkey hook, autostart, real paste into a window
 cargo test --release -p aural-stt-onnx -- --ignored            # needs AURAL_TEST_PARAKEET_DIR, AURAL_TEST_WAV
 cargo test --release -p aural-stt-ggml -- --ignored            # needs AURAL_TEST_WHISPER_MODEL, AURAL_TEST_WAV
 ```
 
 The insertion test briefly takes focus and uses the clipboard (your clipboard text is
 restored afterwards).
+
+Clipboard subprocess helper tests are invoked by their parent tests with explicit
+fixture configuration. Do not run all ignored platform tests indiscriminately; use
+the named desktop fixtures documented in the source.

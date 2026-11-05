@@ -123,7 +123,8 @@ pub fn record(app: &Arc<App>, raw: &str, text: &str, s: &Session) {
 /// Load or unload the AI cleanup model to match the settings (off the UI thread).
 pub fn reload_text_engine(app: &Arc<App>) {
     let s = app.settings();
-    let wanted = s.text.cleanup == CleanupMode::Ai
+    let wanted = s.text.touchup
+        || s.text.cleanup == CleanupMode::Ai
         || s.apps.iter().any(|p| p.cleanup == Some(CleanupMode::Ai));
     let model = s
         .text

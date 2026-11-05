@@ -54,7 +54,7 @@ impl Default for EngineHost {
 /// Worker executables are installed next to aural.exe (Tauri sidecars).
 pub fn worker_exe(engine: Engine) -> PathBuf {
     let name = match engine {
-        Engine::Parakeet | Engine::Moonshine => "aural-stt-onnx.exe",
+        Engine::Parakeet | Engine::Moonshine | Engine::Cohere => "aural-stt-onnx.exe",
         Engine::Whisper => "aural-stt-ggml.exe",
     };
     std::env::current_exe()
@@ -71,7 +71,7 @@ pub fn threads() -> usize {
 /// What the worker loads: the model folder (ONNX) or its single weights file (ggml).
 pub fn model_path(entry: &ModelEntry, store: &ModelStore) -> PathBuf {
     match entry.engine {
-        Engine::Parakeet | Engine::Moonshine => store.dir(&entry.id),
+        Engine::Parakeet | Engine::Moonshine | Engine::Cohere => store.dir(&entry.id),
         Engine::Whisper => store.dir(&entry.id).join(&entry.files[0].name),
     }
 }

@@ -6,11 +6,13 @@ Thanks for your interest in Aural.
 dictation in a particular app, say which app (and version), what you expected, and what
 the pill showed.
 
-**Pull requests are not being accepted yet.** Aural is source-available under the
-PolyForm Strict license ([docs/LICENSING.md](docs/LICENSING.md)), which does not allow
-changes to Aural, and contributor terms that would let Aurathex accept and license
-contributions aren't in place yet. Once they are, this file will
-explain how to contribute code.
+You may modify and redistribute Aural for permitted noncommercial purposes under
+the [PolyForm Noncommercial License 1.0.0](LICENSE.md). Commercial use requires
+separate permission from Aurathex. See [licensing](docs/LICENSING.md).
+
+Pull requests are not being accepted yet; modification and redistribution rights
+do not depend on upstream acceptance. Contributor terms for accepting changes
+upstream remain a separate decision.
 
 ## Ground rules for the project
 

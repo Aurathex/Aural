@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://aurathex.github.io/Aural/sitemap.xml

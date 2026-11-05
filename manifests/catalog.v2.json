@@ -2,6 +2,66 @@
   "version": 2,
   "models": [
     {
+      "id": "cohere-transcribe-03-2026-int4",
+      "name": "Cohere Transcribe 03-2026",
+      "family": "cohere",
+      "engine": "cohere",
+      "runtime": "onnx",
+      "precision": "int4",
+      "streaming": false,
+      "probe": false,
+      "description": "Local English transcription. A larger model that runs on the processor; slower than Parakeet.",
+      "languages": [
+        "en"
+      ],
+      "license": {
+        "id": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "attribution": "Cohere Transcribe 03-2026 by Cohere Labs (https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), Apache 2.0. INT4 ONNX conversion by cstr (https://huggingface.co/cstr/cohere-transcribe-onnx-int4), following the ONNX adaptation by Tristan Ripke."
+      },
+      "source": "https://huggingface.co/cstr/cohere-transcribe-onnx-int4",
+      "files": [
+        {
+          "name": "cohere-decoder.int4.onnx",
+          "url": "https://huggingface.co/cstr/cohere-transcribe-onnx-int4/resolve/2c870f89692c61348481884eb6e1222ec3ba25c9/cohere-decoder.int4.onnx",
+          "sha256": "f176a71e8b743d32bb8e4b8ec19bf70f367c5c3c93b08857826d8f5b60b6ad1e",
+          "size": 371849
+        },
+        {
+          "name": "cohere-decoder.int4.onnx.data",
+          "url": "https://huggingface.co/cstr/cohere-transcribe-onnx-int4/resolve/2c870f89692c61348481884eb6e1222ec3ba25c9/cohere-decoder.int4.onnx.data",
+          "sha256": "ed9461dd2233c44cd86f56c0a4d17c089de317bdbdcf18dc92e44a8a0cf525b3",
+          "size": 143245312
+        },
+        {
+          "name": "cohere-encoder.int4.onnx",
+          "url": "https://huggingface.co/cstr/cohere-transcribe-onnx-int4/resolve/2c870f89692c61348481884eb6e1222ec3ba25c9/cohere-encoder.int4.onnx",
+          "sha256": "1bd619df7113a27d75b136ddc9f35d6b65131baeec15a7680ddda0c18c0b20a5",
+          "size": 6153388
+        },
+        {
+          "name": "cohere-encoder.int4.onnx.data",
+          "url": "https://huggingface.co/cstr/cohere-transcribe-onnx-int4/resolve/2c870f89692c61348481884eb6e1222ec3ba25c9/cohere-encoder.int4.onnx.data",
+          "sha256": "f5bffddbf657edff4b14e650926cdb39b62a8644feb9f6ee4e3287df38e7f900",
+          "size": 1844879360
+        },
+        {
+          "name": "tokens.txt",
+          "url": "https://huggingface.co/cstr/cohere-transcribe-onnx-int4/resolve/2c870f89692c61348481884eb6e1222ec3ba25c9/tokens.txt",
+          "sha256": "013ede043ae2480e3a9205cc34550d9686100cc682bacc90f702facdfbb93035",
+          "size": 207437
+        }
+      ],
+      "variants": [
+        {
+          "backend": "cpu",
+          "min_ram_mb": 8192,
+          "min_vram_mb": 0,
+          "reference": null
+        }
+      ]
+    },
+    {
       "id": "parakeet-tdt-0.6b-v2-int8",
       "name": "Parakeet TDT 0.6B v2",
       "family": "parakeet",

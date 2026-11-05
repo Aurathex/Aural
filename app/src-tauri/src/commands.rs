@@ -58,6 +58,9 @@ pub fn save_settings(app: State<'_, Arc<App>>, settings: Settings) -> Res<AppSta
     if let Verdict::Reject(why) = validate(&chord) {
         return Err(why);
     }
+    if settings.text.touchup {
+        crate::touchup::validate_dictation_chord(&chord)?;
+    }
     let old = app.settings();
     if old.startup.launch_at_login != settings.startup.launch_at_login {
         let exe = std::env::current_exe().map_err(err)?;
@@ -88,6 +91,7 @@ pub fn save_settings(app: State<'_, Arc<App>>, settings: Settings) -> Res<AppSta
     if old.history.keep_days != keep_days {
         let _ = lock(&app.history).prune(keep_days, crate::text::now());
     }
+    crate::touchup::update_shortcut(&app);
     crate::text::reload_text_engine(&app);
     Ok(app.snapshot())
 }

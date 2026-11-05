@@ -193,8 +193,11 @@ impl<I: DictationIo> Dictation<I> {
                     .record(&raw, &text, outcome == InsertOutcome::Inserted);
                 let event = match outcome {
                     InsertOutcome::Inserted => Event::Inserted,
+                    InsertOutcome::PasteSent => {
+                        Event::InsertRecovery(ErrorCode::DeliveryUnconfirmed)
+                    }
                     InsertOutcome::CopiedOnly(reason) => {
-                        Event::InsertFailed(insert_failure(reason))
+                        Event::InsertRecovery(insert_failure(reason))
                     }
                 };
                 queue.push_back(event);
@@ -464,16 +467,33 @@ mod tests {
     }
 
     #[test]
-    fn blocked_insert_keeps_the_text_on_the_clipboard_and_in_the_tray() {
+    fn blocked_insert_preserves_platform_clipboard_recovery_and_remembers_the_text() {
         let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
         d.io.transcript = Some(Ok("keep this".into()));
         d.io.insert_result = Some(InsertOutcome::CopiedOnly(Reason::Elevated));
         hold(&mut d, 1200);
-        assert_eq!(d.io.copied, vec!["keep this".to_string()]);
+        assert!(
+            d.io.copied.is_empty(),
+            "platform already handled clipboard recovery; never overwrite a newer copy"
+        );
         assert_eq!(d.io.last.as_deref(), Some("keep this"));
         let last = d.io.pills.last().unwrap();
         assert_eq!(last.state, PillState::Error(ErrorCode::InsertBlocked));
         assert_eq!(last.label.as_deref(), Some("Copied — Ctrl+V"));
+    }
+
+    #[test]
+    fn unconfirmed_paste_is_remembered_without_copying_or_reporting_success() {
+        let mut d = Dictation::new(ready(), HotkeyMode::PushToTalk);
+        d.io.transcript = Some(Ok("review target".into()));
+        d.io.insert_result = Some(InsertOutcome::PasteSent);
+        hold(&mut d, 1200);
+        assert!(d.io.copied.is_empty());
+        assert_eq!(d.io.last.as_deref(), Some("review target"));
+        assert_eq!(
+            d.io.pills.last().unwrap().state,
+            PillState::Error(ErrorCode::DeliveryUnconfirmed)
+        );
     }
 
     #[test]

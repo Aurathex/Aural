@@ -88,6 +88,7 @@ SOFTWARE.
 
 ## Speech models (downloaded on request, never bundled)
 
+- **Cohere Transcribe 03-2026** — Cohere Transcribe 03-2026 by Cohere Labs (https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), Apache 2.0. INT4 ONNX conversion by cstr (https://huggingface.co/cstr/cohere-transcribe-onnx-int4), following the ONNX adaptation by Tristan Ripke. License: https://www.apache.org/licenses/LICENSE-2.0
 - **Parakeet TDT 0.6B v2** — Parakeet TDT 0.6B v2 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2), licensed CC BY 4.0. Converted to ONNX with int8 quantization by istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx). License: https://creativecommons.org/licenses/by/4.0/
 - **Parakeet TDT 0.6B v3** — Parakeet TDT 0.6B v3 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), licensed CC BY 4.0. Converted to ONNX with int8 quantization by istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx). License: https://creativecommons.org/licenses/by/4.0/
 - **Moonshine base** — Moonshine base by Useful Sensors (https://huggingface.co/UsefulSensors/moonshine-base), MIT License. ONNX export with dynamic int8 quantization by onnx-community (https://huggingface.co/onnx-community/moonshine-base-ONNX). License: https://opensource.org/license/mit
@@ -301,8 +302,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ## Rust crates
 
 - **MIT License** (303 crates)
+- **ISC License** (23 crates)
 - **Unicode License v3** (19 crates)
-- **ISC License** (18 crates)
 - **Apache License 2.0** (15 crates)
 - **Mozilla Public License 2.0** (5 crates)
 - **BSD 3-Clause &quot;New&quot; or &quot;Revised&quot; License** (4 crates)
@@ -1814,7 +1815,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS &quot;AS IS&
 ### Community Data License Agreement Permissive 2.0
 
 Used by:
-- webpki-roots 1.0.9 — https://github.com/rustls/webpki-roots
+- webpki-roots 1.0.10 — https://github.com/rustls/webpki-roots
 
 ```text
 # Community Data License Agreement - Permissive - Version 2.0
@@ -2039,6 +2040,42 @@ Used by:
 - ring 0.17.14 — https://github.com/briansmith/ring
 
 ```text
+// Copyright 2015-2024 Brian Smith.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+#[cfg(target_pointer_width &#x3D; &quot;64&quot;)]
+type CompilerWord &#x3D; u64;
+
+#[cfg(target_pointer_width &#x3D; &quot;32&quot;)]
+type CompilerWord &#x3D; u32;
+
+/// A native word that isn&#x27;t secret.
+///
+/// &#x60;LeakyWord&#x60; supports &#x60;as&#x60; conversions to/from native types.
+///
+/// XXX: This isn&#x27;t the native word size on targets where a pointer isn&#x27;t the
+/// same size as a native word. TODO: Fix this.
+pub(crate) type LeakyWord &#x3D; CompilerWord;
+
+```
+
+### ISC License
+
+Used by:
+- ring 0.17.14 — https://github.com/briansmith/ring
+
+```text
 // Copyright 2015-2025 Brian Smith.
 //
 // Permission to use, copy, modify, and/or distribute this software for any
@@ -2157,6 +2194,47 @@ Used by:
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+#[cfg(target_arch &#x3D; &quot;x86&quot;)]
+pub fn shift_full_blocks&lt;const BLOCK_LEN: usize&gt;(
+    in_out: super::overlapping::Overlapping&lt;&#x27;_, u8&gt;,
+    mut transform: impl FnMut(&amp;[u8; BLOCK_LEN]) -&gt; [u8; BLOCK_LEN],
+) {
+    let (in_out, src) &#x3D; in_out.into_slice_src_mut();
+    let in_out_len &#x3D; in_out[src.clone()].len();
+
+    for i in (0..in_out_len).step_by(BLOCK_LEN) {
+        let block &#x3D; {
+            let input &#x3D;
+                &lt;&amp;[u8; BLOCK_LEN]&gt;::try_from(&amp;in_out[(src.start + i)..][..BLOCK_LEN]).unwrap();
+            transform(input)
+        };
+        let output &#x3D; &lt;&amp;mut [u8; BLOCK_LEN]&gt;::try_from(&amp;mut in_out[i..][..BLOCK_LEN]).unwrap();
+        *output &#x3D; block;
+    }
+}
+
+```
+
+### ISC License
+
+Used by:
+- ring 0.17.14 — https://github.com/briansmith/ring
+
+```text
+// Copyright 2018 Brian Smith.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 //! Serialization and deserialization.
 
 #[doc(hidden)]
@@ -2217,6 +2295,44 @@ mod ffi;
 pub(super) mod fallback;
 mod sha2_32;
 mod sha2_64;
+
+```
+
+### ISC License
+
+Used by:
+- ring 0.17.14 — https://github.com/briansmith/ring
+
+```text
+// Copyright 2022 Brian Smith.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+/// Polyfill for &#x60;Option::unwrap()&#x60; as a const fn; feature &#x60;const_option&#x60;.
+/// https://github.com/rust-lang/rust/issues/67441.
+/// TODO(MSRV): Replace this with &#x60;x.unwrap()&#x60;.
+///
+/// &#x60;T: Copy&#x60; avoids &quot;constant functions cannot evaluate destructors.&quot;
+pub const fn unwrap_const&lt;T&gt;(x: Option&lt;T&gt;) -&gt; T
+where
+    T: Copy,
+{
+    if let Some(x) &#x3D; x {
+        x
+    } else {
+        panic!(&quot;unwrap_const on &#x60;None&#x60;&quot;);
+    }
+}
 
 ```
 
@@ -2302,6 +2418,38 @@ Used by:
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+//! Utilities to make dealing with slices less tediuous.
+
+/// Replaces the first N elements of &#x60;a&#x60; with the first N elements of &#x60;b&#x60;, where
+/// N is &#x60;core::cmp::min(a.len(), b.len())&#x60;, leaving the rest unchanged.
+pub fn overwrite_at_start&lt;T: Copy&gt;(a: &amp;mut [T], b: &amp;[T]) {
+    a.iter_mut().zip(b).for_each(|(a, b)| {
+        *a &#x3D; *b;
+    });
+}
+
+```
+
+### ISC License
+
+Used by:
+- ring 0.17.14 — https://github.com/briansmith/ring
+
+```text
+// Copyright 2024 Brian Smith.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 pub use self::{
     array::Array,
     base::{IndexError, Overlapping},
@@ -2311,6 +2459,45 @@ pub use self::{
 mod array;
 mod base;
 mod partial_block;
+
+```
+
+### ISC License
+
+Used by:
+- ring 0.17.14 — https://github.com/briansmith/ring
+
+```text
+// Copyright 2024 Brian Smith.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use crate::testutil;
+use core::{marker::PhantomData, mem::size_of};
+
+/// A ZST that can be added to any type to make the type &#x60;!Send&#x60;.
+#[derive(Clone, Copy)]
+pub struct NotSend(PhantomData&lt;*mut ()&gt;);
+
+impl NotSend {
+    pub const VALUE: Self &#x3D; Self(PhantomData);
+}
+
+#[allow(deprecated)]
+const _: () &#x3D; testutil::compile_time_assert_clone::&lt;NotSend&gt;();
+#[allow(deprecated)]
+const _: () &#x3D; testutil::compile_time_assert_copy::&lt;NotSend&gt;();
+const _: () &#x3D; assert!(size_of::&lt;NotSend&gt;() &#x3D;&#x3D; 0);
 
 ```
 
@@ -2442,7 +2629,7 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ### ISC License
 
 Used by:
-- rustls-webpki 0.103.15 — https://github.com/rustls/webpki
+- rustls-webpki 0.103.16 — https://github.com/rustls/webpki
 
 ```text
 Except as otherwise noted, this project is licensed under the following
@@ -3495,7 +3682,7 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 Used by:
-- rustls 0.23.45 — https://github.com/rustls/rustls
+- rustls 0.23.46 — https://github.com/rustls/rustls
 
 ```text
 Copyright (c) 2016 Joseph Birr-Pixton &lt;jpixton@gmail.com&gt;
@@ -8037,8 +8224,8 @@ Used by:
 - potential_utf 0.1.6 — https://github.com/unicode-org/icu4x
 - tinystr 0.8.4 — https://github.com/unicode-org/icu4x
 - writeable 0.6.4 — https://github.com/unicode-org/icu4x
-- yoke-derive 0.8.3 — https://github.com/unicode-org/icu4x
-- yoke 0.8.3 — https://github.com/unicode-org/icu4x
+- yoke-derive 0.8.4 — https://github.com/unicode-org/icu4x
+- yoke 0.8.4 — https://github.com/unicode-org/icu4x
 - zerofrom-derive 0.1.8 — https://github.com/unicode-org/icu4x
 - zerofrom 0.1.8 — https://github.com/unicode-org/icu4x
 - zerotrie 0.2.5 — https://github.com/unicode-org/icu4x

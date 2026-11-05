@@ -13,10 +13,11 @@ pub enum ErrorCode {
     InsertBlocked,
     FocusChanged,
     InsertFailed,
+    DeliveryUnconfirmed,
 }
 
 impl ErrorCode {
-    pub const ALL: [ErrorCode; 7] = [
+    pub const ALL: [ErrorCode; 8] = [
         ErrorCode::MicBlocked,
         ErrorCode::MicUnavailable,
         ErrorCode::NoModel,
@@ -24,6 +25,7 @@ impl ErrorCode {
         ErrorCode::InsertBlocked,
         ErrorCode::FocusChanged,
         ErrorCode::InsertFailed,
+        ErrorCode::DeliveryUnconfirmed,
     ];
 
     /// Short text for the pill.
@@ -37,6 +39,7 @@ impl ErrorCode {
             ErrorCode::InsertBlocked => "Copied — Ctrl+V",
             ErrorCode::FocusChanged => "Copied — Ctrl+V",
             ErrorCode::InsertFailed => "Copied — Ctrl+V",
+            ErrorCode::DeliveryUnconfirmed => "Check target input",
         }
     }
 
@@ -45,7 +48,10 @@ impl ErrorCode {
         match self {
             ErrorCode::MicBlocked | ErrorCode::MicUnavailable => Some("microphone"),
             ErrorCode::NoModel | ErrorCode::EngineFailed => Some("models"),
-            ErrorCode::InsertBlocked | ErrorCode::FocusChanged | ErrorCode::InsertFailed => None,
+            ErrorCode::InsertBlocked
+            | ErrorCode::FocusChanged
+            | ErrorCode::InsertFailed
+            | ErrorCode::DeliveryUnconfirmed => None,
         }
     }
 }
