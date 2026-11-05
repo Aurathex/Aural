@@ -240,7 +240,7 @@ fn worker_transcribes_cohere_real_speech() {
             Duration::from_secs(180),
         )
         .unwrap();
-    assert_eq!(client.backend().as_deref(), Some("cpu"));
+    assert_eq!(client.backend(), Some("cpu"));
     let clips = aural_eval::clips::builtin(
         &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/eval"),
     )
