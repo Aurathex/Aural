@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { call, inApp, on } from "../lib/api";
   import Logo from "../lib/Logo.svelte";
+  import { latestTouchup } from "../lib/touchup-state";
   import General from "./General.svelte";
   import Microphone from "./Microphone.svelte";
   import Models from "./Models.svelte";
@@ -39,7 +40,7 @@
   // (from any source) decides whether to open on Models.
   function receive(s: AppState) {
     loadError = false;
-    app = s;
+    app = { ...s, touchup: latestTouchup(app?.touchup, s.touchup) };
     if (firstRun) {
       firstRun = false;
       // First start: the Models page, where the hardware test offers itself.
@@ -67,7 +68,7 @@
     saveError = null;
     saving = true;
     try {
-      app = await call<AppState>("save_settings", { settings: s });
+      receive(await call<AppState>("save_settings", { settings: s }));
     } catch (e) {
       saveError = String(e);
     } finally {
@@ -113,7 +114,7 @@
 {#if deleted}
   <div class="farewell"><Logo size={40} /><p>Aural is being removed. You can close this window.</p></div>
 {:else if app}
-  <Touchup preview={app.touchup} update={(p) => { if (app) app.touchup = p; }} />
+  <Touchup preview={app.touchup} update={(p) => { if (app) app.touchup = latestTouchup(app.touchup, p); }} />
   <div class="shell">
     <aside>
       <div class="brand"><span class="mark"><Logo size={18} weight={6} /></span><span>Aural</span><span class="version">{app.version}</span></div>
@@ -134,7 +135,7 @@
       {#if app.notice}
         <div class="notice" role="alert">
           <span>{app.notice}</span>
-          <button class="btn quiet" onclick={async () => (app = await call<AppState>("dismiss_notice"))}>Dismiss</button>
+          <button class="btn quiet" onclick={async () => receive(await call<AppState>("dismiss_notice"))}>Dismiss</button>
         </div>
       {/if}
       {#if saveError}
@@ -143,9 +144,9 @@
       <fieldset class="page-content" disabled={saving} aria-busy={saving}>
       {#if page === "general"}<General {app} {save} />
       {:else if page === "microphone"}<Microphone {app} {save} />
-      {:else if page === "models"}<Models {app} update={(s) => (app = s)} />
-      {:else if page === "writing"}<Writing {app} {save} update={(s) => (app = s)} />
-      {:else if page === "history"}<History {app} {save} update={(s) => (app = s)} />
+      {:else if page === "models"}<Models {app} update={receive} />
+      {:else if page === "writing"}<Writing {app} {save} update={receive} />
+      {:else if page === "history"}<History {app} {save} update={receive} />
       {:else}<About {app} />{/if}
       </fieldset>
     </main>

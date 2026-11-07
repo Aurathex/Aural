@@ -3,7 +3,8 @@
   import type { TouchupPreview } from "../lib/types";
   let { preview, update }: { preview: TouchupPreview; update: (p: TouchupPreview) => void } = $props();
   let dialog: HTMLDialogElement;
-  let error = $state<string | null>(null);
+  let error = $state<{ id: number; message: string } | null>(null);
+  let message = $derived(error?.id === preview.id ? error.message : preview.error);
   let busy = $derived(preview.phase === "applying");
   $effect(() => {
     if (!dialog) return;
@@ -12,15 +13,21 @@
   });
   async function close() {
     if (busy) return;
-    await call("cancel_touchup", { id: preview.id });
-    update({ id: preview.id + 1, phase: "", original: "", target: "", suggestion: "", error: null });
+    const id = preview.id;
     error = null;
+    await call("cancel_touchup", { id });
+    update({ id: id + 1, phase: "", original: "", target: "", suggestion: "", error: null });
   }
   async function apply() {
+    const original = { ...preview };
+    const id = original.id;
     error = null;
-    update({ ...preview, phase: "applying" });
-    try { update(await call<TouchupPreview>("apply_touchup", { id: preview.id })); }
-    catch (e) { error = String(e); update({ ...preview, phase: "error" }); }
+    update({ ...original, phase: "applying" });
+    try { update(await call<TouchupPreview>("apply_touchup", { id })); }
+    catch (e) {
+      if (preview.id === id) error = { id, message: String(e) };
+      update({ ...original, phase: "error" });
+    }
   }
 </script>
 
@@ -31,7 +38,7 @@
   {#if preview.original}<h3>Original</h3><pre>{preview.original}</pre>{/if}
   {#if preview.phase === "working"}<p role="status">Fixing grammar, spelling and wording…</p>{/if}
   {#if preview.suggestion}<h3>Suggested revision</h3><pre>{preview.suggestion}</pre>{/if}
-  {#if preview.error || error}<p role="status" class="message">{error ?? preview.error}</p>{/if}
+  {#if message}<p role="status" class="message">{message}</p>{/if}
   {#if preview.phase === "review"}<p class="hint">Apply returns to the original app and checks that the same text is still selected. Review facts and meaning before applying.</p>{/if}
   <div class="actions">
     <button class="btn" disabled={busy} onclick={close}>{preview.phase === "done" ? "Close" : "Cancel"}</button>

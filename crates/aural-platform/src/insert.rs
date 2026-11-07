@@ -1057,6 +1057,36 @@ mod win {
     }
 
     fn focused_runtime_id(expected_pid: u32) -> Result<Vec<i32>> {
+        accessible_identity(expected_pid, None, None, None).map(|(ids, _)| ids)
+    }
+
+    fn selected_text_within_limit(text: String) -> Result<String> {
+        // A maximum of 3,000 Unicode scalars occupies at most 6,000 UTF-16
+        // units. The extra unit is a sentinel: never accept a truncated prefix.
+        if text.encode_utf16().count() >= 6001 || text.chars().count() > 3000 {
+            bail!("Select up to 3,000 characters at a time. Original text kept.");
+        }
+        if text.is_empty() {
+            bail!("select text before using Touch up");
+        }
+        Ok(text)
+    }
+
+    fn menu_control_type(control_type: i32) -> bool {
+        matches!(control_type, 50009..=50011)
+    }
+
+    fn retry_menu_transition(code: u32, dismissed: bool, before_deadline: bool) -> bool {
+        use windows::Win32::UI::Accessibility::UIA_E_ELEMENTNOTAVAILABLE;
+        dismissed && before_deadline && code == UIA_E_ELEMENTNOTAVAILABLE
+    }
+
+    fn accessible_identity(
+        expected_pid: u32,
+        selected_text: Option<&mut Option<String>>,
+        native_hwnd: Option<isize>,
+        capture_target: Option<isize>,
+    ) -> Result<(Vec<i32>, isize)> {
         use windows::Win32::System::Com::{
             CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
             COINIT_MULTITHREADED,
@@ -1075,15 +1105,127 @@ mod win {
         }
         unsafe {
             let initialized = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+
             let _apartment = Apartment(initialized);
+
             let automation: IUIAutomation =
                 CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
-            let element = automation.GetFocusedElement()?;
+
+            let mut element = match native_hwnd {
+                Some(hwnd) => automation.ElementFromHandle(HWND(hwnd as *mut _))?,
+                None => automation.GetFocusedElement()?,
+            };
+            if let Some(hwnd) = native_hwnd {
+                anyhow::ensure!(
+                    element.CurrentNativeWindowHandle()?.0 as isize == hwnd,
+                    "the selected native editor could not be identified"
+                );
+            }
+            if let Some(target) = capture_target {
+                let deadline = Instant::now() + Duration::from_millis(300);
+                let mut dismissed = false;
+                loop {
+                    anyhow::ensure!(
+                        foreground_window() == target && window_pid(target) == expected_pid,
+                        "focus changed while dismissing the shortcut menu"
+                    );
+                    // A menu can destroy its provider as Escape is processed. Read
+                    // each replacement provider and its metadata as one retry unit.
+                    let current = (|| -> windows::core::Result<_> {
+                        let current = if dismissed {
+                            automation.GetFocusedElement()?
+                        } else {
+                            element.clone()
+                        };
+                        let pid = current.CurrentProcessId()? as u32;
+                        let control_type = current.CurrentControlType()?.0;
+                        Ok((current, pid, control_type))
+                    })();
+                    let (current, pid, control_type) = match current {
+                        Ok(current) => current,
+                        Err(error)
+                            if retry_menu_transition(
+                                error.code().0 as u32,
+                                dismissed,
+                                Instant::now() < deadline,
+                            ) =>
+                        {
+                            std::thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
+                    element = current;
+                    anyhow::ensure!(
+                        pid == expected_pid,
+                        "focused accessibility element belongs to another application"
+                    );
+                    if !menu_control_type(control_type) {
+                        break;
+                    }
+                    anyhow::ensure!(
+                        Instant::now() < deadline,
+                        "close the application menu and select text before using Touch up"
+                    );
+                    if !dismissed {
+                        anyhow::ensure!(
+                            held_modifiers().is_empty(),
+                            "release the shortcut keys before using Touch up"
+                        );
+
+                        // One Escape only, to the verified original app and menu.
+                        send(&[key(0x1B, false), key(0x1B, true)])?;
+                        dismissed = true;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+
+            let element_pid = element.CurrentProcessId()? as u32;
+
             anyhow::ensure!(
-                element.CurrentProcessId()? as u32 == expected_pid,
+                element_pid == expected_pid,
                 "focused accessibility element belongs to another application"
             );
+            if let Some(selected_text) = selected_text {
+                use windows::Win32::UI::Accessibility::{
+                    IUIAutomationTextPattern, TextPatternRangeEndpoint_End,
+                    TextPatternRangeEndpoint_Start, UIA_TextPatternId, UIA_E_NOTSUPPORTED,
+                };
+                // Read selection and identity from this same provider element. No
+                // focus, keyboard or clipboard operation occurs on this path.
+                match element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) {
+                    Ok(pattern) => {
+                        let ranges = pattern.GetSelection()?;
+                        let count = ranges.Length()?;
+
+                        anyhow::ensure!(
+                            count == 1,
+                            "select one continuous text range before using Touch up"
+                        );
+                        let range = ranges.GetElement(0)?;
+                        anyhow::ensure!(
+                            range.CompareEndpoints(
+                                TextPatternRangeEndpoint_Start,
+                                &range,
+                                TextPatternRangeEndpoint_End
+                            )? != 0,
+                            "select text before using Touch up"
+                        );
+                        let text = selected_text_within_limit(range.GetText(6001)?.to_string())?;
+
+                        *selected_text = Some(text);
+                    }
+                    Err(error)
+                        if error.code().0 as u32 == UIA_E_NOTSUPPORTED
+                            || error.code().0 as u32 == 0x80004002
+                            || error.code().0 == 0 => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+
             let array = element.GetRuntimeId()?;
+
             let result = (|| -> Result<Vec<i32>> {
                 let first = SafeArrayGetLBound(array, 1)?;
                 let last = SafeArrayGetUBound(array, 1)?;
@@ -1100,7 +1242,55 @@ mod win {
                 Ok(ids)
             })();
             let _ = SafeArrayDestroy(array);
-            result
+
+            let provider_hwnd = element.CurrentNativeWindowHandle()?.0 as isize;
+            result.map(|ids| (ids, provider_hwnd))
+        }
+    }
+
+    #[cfg(test)]
+    mod selection_limits {
+        use super::{menu_control_type, retry_menu_transition, selected_text_within_limit};
+
+        #[test]
+        fn provider_retry_is_specific_to_menu_dismissal_and_existing_deadline() {
+            use windows::Win32::UI::Accessibility::UIA_E_ELEMENTNOTAVAILABLE;
+            assert_eq!(UIA_E_ELEMENTNOTAVAILABLE, 0x80040201);
+            assert!(retry_menu_transition(UIA_E_ELEMENTNOTAVAILABLE, true, true));
+            assert!(!retry_menu_transition(
+                UIA_E_ELEMENTNOTAVAILABLE,
+                false,
+                true
+            ));
+            assert!(!retry_menu_transition(
+                UIA_E_ELEMENTNOTAVAILABLE,
+                true,
+                false
+            ));
+            assert!(!retry_menu_transition(0x80004005, true, true));
+            assert!(!retry_menu_transition(0, true, true));
+        }
+
+        #[test]
+        fn only_menu_controls_allow_capture_time_escape() {
+            for control in [50009, 50010, 50011] {
+                assert!(menu_control_type(control));
+            }
+            for control in [50000, 50004, 50030, 50033, 0] {
+                assert!(!menu_control_type(control));
+            }
+        }
+
+        #[test]
+        fn accepts_complete_astral_text_and_rejects_overlong_or_truncated_ranges() {
+            let complete = "😀".repeat(3000);
+            assert_eq!(
+                selected_text_within_limit(complete.clone()).unwrap(),
+                complete
+            );
+            assert!(selected_text_within_limit("😀".repeat(3001)).is_err());
+            assert!(selected_text_within_limit("x".repeat(6001)).is_err());
+            assert!(selected_text_within_limit(String::new()).is_err());
         }
     }
 
@@ -1112,6 +1302,7 @@ mod win {
             ..Default::default()
         };
         unsafe { GetGUIThreadInfo(thread, &mut info) }.context("reading target input focus")?;
+
         Ok(info.hwndFocus.0 as isize)
     }
 
@@ -1126,7 +1317,9 @@ mod win {
         if foreground_window() != expected {
             bail!("focus changed before copying selection");
         }
+
         let previous = snapshot_clipboard()?;
+
         if !previous.complete {
             bail!("the clipboard cannot be preserved for selection capture");
         }
@@ -1136,18 +1329,23 @@ mod win {
             std::process::id(),
             Instant::now()
         );
+
         let marker_sequence = set_clipboard_text(&marker, true)?;
+
         let result = (|| -> Result<(String, u32)> {
             release_modifiers()?;
+
             if foreground_window() != expected {
                 bail!("focus changed before copying selection");
             }
+
             send(&[
                 key(0xA2, false),
                 key(0x43, false),
                 key(0x43, true),
                 key(0xA2, true),
             ])?;
+
             let deadline = Instant::now() + Duration::from_millis(750);
             loop {
                 if foreground_window() != expected {
@@ -1159,10 +1357,13 @@ mod win {
                     // user copy cannot become the selection to replace.
                     let owner =
                         unsafe { windows::Win32::System::DataExchange::GetClipboardOwner() }.ok();
+
                     if owner.is_none_or(|h| window_pid(h.0 as isize) != window_pid(expected)) {
                         bail!("another application changed the clipboard");
                     }
+
                     let text = read_clipboard_text().context("the selection contains no text")?;
+
                     if text.is_empty() || text == marker {
                         bail!("select text before using Touch up");
                     }
@@ -1182,16 +1383,20 @@ mod win {
         // can never be overwritten between the check and the write.
         {
             let _g = open_clipboard()?;
-            if unsafe { GetClipboardSequenceNumber() } == expected_sequence {
+            let current_sequence = unsafe { GetClipboardSequenceNumber() };
+
+            if current_sequence == expected_sequence {
                 unsafe { EmptyClipboard() }.context("emptying clipboard")?;
                 write_saved_locked(&previous)?;
             }
         }
+
         result.map(|(text, _)| text)
     }
 
     pub fn capture_selection() -> Result<SelectionSnapshot> {
         let target = foreground_target();
+
         if target.hwnd == 0 || (target.elevated && !self_elevated()) {
             bail!("the focused application cannot be accessed");
         }
@@ -1201,11 +1406,37 @@ mod win {
         let pid = window_pid(target.hwnd);
         let focused_hwnd = focused_control(target.hwnd)?;
         let caption = window_caption(target.hwnd);
-        let runtime_id = focused_runtime_id(pid).ok();
-        if runtime_id.is_none() && !native_text_control(focused_hwnd) {
-            bail!("this input does not expose a safe selection identity; use an editor with accessibility support");
-        }
-        let text = copy_selected_text(target.hwnd)?;
+
+        let mut selected_text = None;
+        let runtime_result = accessible_identity(
+            pid,
+            Some(&mut selected_text),
+            native_text_control(focused_hwnd).then_some(focused_hwnd),
+            Some(target.hwnd),
+        );
+
+        let (runtime_id, provider_hwnd) = runtime_result?;
+        let runtime_id = Some(runtime_id);
+        // Menu dismissal may have returned focus to a different native editor child.
+        // Capture that fresh provider/control identity together with its selection.
+        let focused_hwnd = if native_text_control(provider_hwnd) && window_pid(provider_hwnd) == pid
+        {
+            provider_hwnd
+        } else {
+            focused_control(target.hwnd)?
+        };
+
+        let text = match selected_text {
+            Some(text) => text,
+            None if native_text_control(focused_hwnd) =>
+                selected_text_within_limit(copy_selected_text(target.hwnd)?)?,
+            None => bail!("this input does not expose a safe text selection; use an editor with accessibility support"),
+        };
+        anyhow::ensure!(
+            foreground_window() == target.hwnd,
+            "focus changed while capturing selection"
+        );
+
         Ok(SelectionSnapshot {
             text,
             target,
@@ -1239,22 +1470,29 @@ mod win {
         while foreground_window() != selection.target.hwnd && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
+
         if window_caption(selection.target.hwnd) != selection.caption {
             bail!("the original document changed; select the text again");
         }
+
         if let Some(original) = &selection.runtime_id {
-            if focused_runtime_id(selection.pid)? != *original {
+            let current = focused_runtime_id(selection.pid)?;
+
+            if current != *original {
                 bail!("the original editor context changed; select the text again");
             }
         } else if !native_text_control(selection.focused_hwnd) {
             bail!("the original input cannot be safely identified");
         }
+
         if focused_control(selection.target.hwnd)? != selection.focused_hwnd {
             bail!("the original input control changed; select the text again");
         }
+
         if copy_selected_text(selection.target.hwnd)? != selection.text {
             bail!("the original selection changed; select it again");
         }
+
         insert(text, selection.target.hwnd).map_err(anyhow::Error::new)
     }
 
@@ -1854,6 +2092,16 @@ mod tests {
             });
             let (target, review) = rx.recv().unwrap();
             let result = (|| -> anyhow::Result<()> {
+                // SetForegroundWindow activation completes through the GUI pump.
+                // Do not capture whichever application was foreground before it.
+                let deadline = Instant::now() + Duration::from_secs(1);
+                while foreground_window() != target && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                anyhow::ensure!(
+                    foreground_window() == target,
+                    "disposable editor did not receive focus"
+                );
                 set_clipboard_text("preserved clipboard", false)?;
                 let selection =
                     capture_selection().map_err(|e| anyhow::anyhow!("initial capture: {e}"))?;
